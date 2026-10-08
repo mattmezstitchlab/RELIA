@@ -1,8 +1,10 @@
+<!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RELIA — Réseau de Connaissances 3D</title>
+    <meta name="description" content="Explorez RELIA : un prototype de graphe relationnel 3D pour découvrir des chemins entre personnalités.">
     
     <!-- CSS / Tailwind & Fonts -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -13,7 +15,7 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     
     <script>
-        tailwind.config = {
+        if (window.tailwind) tailwind.config = {
             theme: {
                 extend: {
                     fontFamily: {
@@ -37,6 +39,9 @@
     <style>
         body {
             background-color: #030712;
+            color: #e2e8f0;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            margin: 0;
             overflow: hidden;
             user-select: none;
         }
@@ -68,6 +73,46 @@
         .glow-text {
             text-shadow: 0 0 10px rgba(6, 182, 212, 0.6);
         }
+        .hidden {
+            display: none;
+        }
+        #app-overlay {
+            position: relative;
+            height: 100dvh;
+            box-sizing: border-box;
+        }
+        #app-notice {
+            padding: 8px 12px;
+            color: #cbd5e1;
+            background: #0b1528;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+        @media (max-width: 1023px), (max-height: 700px) {
+            body {
+                overflow-y: auto;
+            }
+            #canvas-container {
+                position: fixed;
+            }
+            #app-overlay {
+                height: auto;
+                min-height: 100dvh;
+                padding: 12px;
+            }
+            #app-overlay main,
+            #app-overlay footer {
+                flex-direction: column;
+            }
+            #app-overlay section,
+            #app-overlay footer > div {
+                width: 100%;
+            }
+            #details-panel {
+                max-height: none;
+            }
+        }
     </style>
 </head>
 <body class="font-sans text-slate-200 min-h-screen relative">
@@ -76,7 +121,7 @@
     <div id="canvas-container" class="absolute inset-0 z-0"></div>
 
     <!-- UI Overlay -->
-    <div class="absolute inset-0 pointer-events-none z-10 flex flex-col justify-between p-6">
+    <div id="app-overlay" class="relative pointer-events-none z-10 flex flex-col justify-between p-6">
         
         <!-- Header (TOP BAR) -->
         <header class="flex justify-between items-start w-full pointer-events-auto">
@@ -91,7 +136,7 @@
                     <h1 class="text-xl font-bold tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">RELIA</h1>
                     <p class="text-[10px] text-slate-400 uppercase tracking-widest font-semibold flex items-center">
                         <span class="inline-block w-1.5 h-1.5 bg-accent-cyan rounded-full mr-1.5 animate-ping"></span>
-                        Graphe de Connaissances Spatiales
+                        Prototype · Graphe relationnel
                     </p>
                 </div>
             </div>
@@ -102,24 +147,27 @@
                     <div class="w-2 h-2 rounded-full bg-accent-emerald"></div>
                     <div>
                         <span class="text-slate-400 block text-[9px] uppercase tracking-wider">Moteur Base</span>
-                        <span class="font-semibold text-slate-200">PostgreSQL / Neo4j</span>
+                        <span class="font-semibold text-slate-200">Graphe local · Démonstration</span>
                     </div>
                 </div>
                 <div class="h-8 w-px bg-slate-800"></div>
                 <div>
-                    <span class="text-slate-400 block text-[9px] uppercase tracking-wider">Données Live</span>
+                    <span class="text-slate-400 block text-[9px] uppercase tracking-wider">Biographies optionnelles</span>
                     <span class="font-semibold text-accent-cyan flex items-center">
-                        Wikidata API 
+                        Wikipedia API
                         <svg class="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
                     </span>
                 </div>
                 <div class="h-8 w-px bg-slate-800"></div>
                 <div class="text-right">
                     <span class="text-slate-400 block text-[9px] uppercase tracking-wider">Temps de Trajet</span>
-                    <span class="font-semibold text-slate-200" id="query-time">0.12 ms (Cache Hit)</span>
+                    <span class="font-semibold text-slate-200" id="query-time">En attente</span>
                 </div>
             </div>
         </header>
+        <p id="app-notice" role="status" class="pointer-events-auto mt-3">Démonstration : relations illustratives non vérifiées, sans serveur ni comptes utilisateurs.</p>
+        <noscript>Activez JavaScript pour explorer le graphe RELIA.</noscript>
+        <datalist id="available-people"></datalist>
 
         <!-- Main Middle HUD -->
         <main class="flex-grow flex flex-col md:flex-row justify-between items-stretch my-6 gap-6 min-h-0 pointer-events-none">
@@ -146,7 +194,7 @@
                         <div class="relative">
                             <label class="block text-[10px] text-slate-400 uppercase tracking-widest font-bold mb-1.5 flex justify-between">
                                 <span>Personne d'Origine (A)</span>
-                                <span class="text-accent-cyan lowercase font-normal">QID validé</span>
+                                <span class="text-accent-cyan lowercase font-normal">graphe local</span>
                             </label>
                             <div class="relative">
                                 <input type="text" id="input-person-a" value="Sandrine Sarroche" placeholder="Ex: Sandrine Sarroche..." class="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-3 pl-10 text-sm focus:outline-none focus:border-accent-cyan text-white transition-all">
@@ -167,7 +215,7 @@
                         <div class="relative">
                             <label class="block text-[10px] text-slate-400 uppercase tracking-widest font-bold mb-1.5 flex justify-between">
                                 <span>Personne Cible (B)</span>
-                                <span class="text-accent-purple lowercase font-normal">QID validé</span>
+                                <span class="text-accent-purple lowercase font-normal">graphe local</span>
                             </label>
                             <div class="relative">
                                 <input type="text" id="input-person-b" value="Pierre Lefebvre" placeholder="Ex: Pierre Lefebvre..." class="w-full bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-3 pl-10 text-sm focus:outline-none focus:border-accent-purple text-white transition-all">
@@ -204,7 +252,7 @@
                         <button onclick="loadScenario('sarroche', 'lefebvre')" class="w-full text-left p-2.5 rounded-xl border border-slate-800 hover:border-accent-cyan/40 bg-slate-950/40 hover:bg-slate-950/80 transition-all text-xs flex justify-between items-center group">
                             <div>
                                 <span class="font-medium text-slate-200 block">Sandrine Sarroche ↔ Pierre Lefebvre</span>
-                                <span class="text-[10px] text-slate-500">Test d'intégration requis</span>
+                                <span class="text-[10px] text-slate-500">Scénario de démonstration</span>
                             </div>
                             <span class="text-accent-cyan opacity-0 group-hover:opacity-100 transition-opacity">→</span>
                         </button>
@@ -247,9 +295,9 @@
 
                         <!-- Bio / Description -->
                         <div id="details-bio" class="space-y-2">
-                            <h4 class="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Données Biographiques (Wikipedia)</h4>
+                            <h4 class="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Biographie (Wikipedia ou données locales)</h4>
                             <p id="details-text" class="text-xs text-slate-300 leading-relaxed">
-                                Les informations provenant de la base de connaissances persistante s'afficheront ici en temps réel.
+                                Sélectionnez une personnalité du graphe local pour consulter sa fiche.
                             </p>
                         </div>
 
@@ -263,18 +311,18 @@
 
                         <!-- Evidence / Transparency / Server Caching Section -->
                         <div class="space-y-3">
-                            <h4 class="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Traçabilité & Preuves</h4>
+                            <h4 class="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Transparence des données</h4>
                             <div class="p-3 bg-slate-950/60 rounded-xl border border-slate-800 space-y-2 text-xs">
                                 <div class="flex justify-between items-center text-[11px]">
                                     <span class="text-slate-400">Statut de Validation</span>
                                     <span id="evidence-status" class="text-accent-emerald flex items-center gap-1 font-semibold">
                                         <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
-                                        Validé (RELIA-Core)
+                                        Démonstration non vérifiée
                                     </span>
                                 </div>
                                 <div class="h-px bg-slate-800/60 my-2"></div>
                                 <p id="evidence-text" class="text-slate-400 text-[11px] leading-relaxed">
-                                    Chaque relation affichée est directement extraite des affirmations de structure de Wikidata (claims) et recoupée avec les résumés encyclopédiques de Wikipedia.
+                                    Les relations et références sont des exemples intégrés au prototype, et non des preuves vérifiées. Les biographies peuvent être chargées depuis Wikipedia ; elles ne valident pas les liens du graphe.
                                 </p>
                             </div>
                         </div>
@@ -292,15 +340,14 @@
                 <div class="flex items-center justify-between border-b border-slate-800 pb-2">
                     <span class="text-[10px] font-mono text-accent-cyan flex items-center gap-1.5">
                         <span class="w-2 h-2 rounded-full bg-accent-cyan animate-pulse"></span>
-                        relia-server@node-postgres:~
+                        relia@prototype-local:~
                     </span>
-                    <span class="text-[9px] text-slate-500 font-mono">Process ID: 14092</span>
+                    <span class="text-[9px] text-slate-500 font-mono">Dans votre navigateur</span>
                 </div>
                 <div id="console-logs" class="h-28 overflow-y-auto font-mono text-[10px] text-emerald-400/90 space-y-1">
                     <div>[SYSTEM] Initialisation de RELIA v1.0.0...</div>
-                    <div>[POSTGRES] Connexion établie avec l'instance relationnelle.</div>
-                    <div>[GRAPH-DB] Indexation des nœuds terminés (1,489 relations documentées).</div>
-                    <div>[CACHE] Serveur Redis opérationnel (TTL: 86400s).</div>
+                    <div>[LOCAL] Graphe de démonstration chargé en mémoire.</div>
+                    <div>[INFO] Aucun serveur PostgreSQL, Neo4j ou Redis connecté.</div>
                     <div>[READY] Prêt pour les requêtes de l'utilisateur.</div>
                 </div>
             </div>
@@ -537,15 +584,20 @@
         async function fetchWikipediaSummary(title) {
             logToServerConsole(`[WIKIPEDIA] Récupération de la fiche biographique pour "${title}"...`);
             const url = `https://fr.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title.replace(/ /g, '_'))}`;
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 8000);
             try {
-                const response = await fetch(url);
+                const response = await fetch(url, { signal: controller.signal });
                 if (!response.ok) throw new Error("Page non trouvée.");
                 const data = await response.json();
-                logToServerConsole(`[CACHE] Mise en cache Redis de la fiche bio.`);
+                if (typeof data.extract !== 'string') return null;
+                logToServerConsole(`[WIKIPEDIA] Fiche biographique reçue.`);
                 return data;
             } catch (err) {
                 logToServerConsole(`[WIKIPEDIA] Fallback linguistique ou indisponibilité.`, true);
                 return null;
+            } finally {
+                clearTimeout(timeout);
             }
         }
 
@@ -554,6 +606,8 @@
         // -------------------------------------------------------------
         
         let scene, camera, renderer, controls;
+        let graphReady = false;
+        let detailRequest = 0;
         let nodesGroup, edgesGroup, starField;
         let nodeMeshes = {};
         let edgeLines = [];
@@ -810,10 +864,11 @@
         }
 
         // Raycasting integration
-        let raycaster = new THREE.Raycaster();
-        let mouse = new THREE.Vector2();
+        let raycaster, mouse;
 
         function setupRaycasting() {
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
             window.addEventListener('click', (event) => {
                 // Ignore UI interaction clicks
                 if (event.target.closest('button') || event.target.closest('input') || event.target.closest('section') || event.target.closest('footer') || event.target.closest('header')) {
@@ -901,6 +956,7 @@
         function selectNode(nodeId) {
             const node = DB.nodes[nodeId];
             if (!node) return;
+            const request = ++detailRequest;
 
             // Highlight node visually in space
             highlightNodes([nodeId]);
@@ -912,11 +968,13 @@
             document.getElementById('details-title').innerText = node.name;
             document.getElementById('details-qid').innerText = node.qid;
             document.getElementById('details-subtitle').innerText = node.occupation || "Personnalité historique";
+            document.getElementById('details-image-container').classList.add('hidden');
             
             // Fetch live data directly from Wikipedia if feasible, else use rich local mock DB
-            document.getElementById('details-text').innerText = "Recherche en cours dans la base locale et l'API Wikipedia...";
+            document.getElementById('details-text').innerText = node.bio;
             
             fetchWikipediaSummary(node.name).then(wikiData => {
+                if (request !== detailRequest) return;
                 if (wikiData) {
                     document.getElementById('details-text').innerText = wikiData.extract;
                     if (wikiData.thumbnail && wikiData.thumbnail.source) {
@@ -945,6 +1003,7 @@
         }
 
         function focusCameraOn(x, y, z) {
+            if (!graphReady) return;
             const offset = 25;
             const duration = 1000;
             const startPos = camera.position.clone();
@@ -956,7 +1015,7 @@
                 let progress = Math.min(elapsed / duration, 1);
                 
                 // Ease out cubic
-                let t = (--progress) * progress * progress + 1;
+                let t = 1 - Math.pow(1 - progress, 3);
 
                 camera.position.lerpVectors(startPos, endPos, t);
                 controls.target.set(x, y, z);
@@ -1016,7 +1075,7 @@
                 const personAName = document.getElementById('input-person-a').value.trim();
                 const personBName = document.getElementById('input-person-b').value.trim();
 
-                logToServerConsole(`[NEO4J] Calcul de l'itinéraire le plus court (BFS)...`);
+                logToServerConsole(`[LOCAL] Calcul de l'itinéraire le plus court (BFS)...`);
 
                 // Map input strings to our graph node keys
                 const nodeAKey = findKeyByName(personAName);
@@ -1033,7 +1092,7 @@
                 if (path) {
                     const elapsed = (performance.now() - startTimer).toFixed(2);
                     document.getElementById('query-time').innerText = `${elapsed} ms (Traversée Graph)`;
-                    logToServerConsole(`[NEO4J] Chemin découvert en ${elapsed}ms: ${path.join(' -> ')}`);
+                    logToServerConsole(`[LOCAL] Chemin découvert en ${elapsed}ms: ${path.join(' -> ')}`);
 
                     // Highlight entire path visually
                     const activeEdges = [];
@@ -1067,14 +1126,15 @@
 
         // Fill dynamic UI sidebar with verified evidence & relations
         function displayPathInUI(path) {
+            ++detailRequest;
             const pathBlock = document.getElementById('details-connections-block');
             const pathStepsContainer = document.getElementById('path-steps');
             
-            document.getElementById('details-title').innerText = "Liaison Établie";
+            document.getElementById('details-title').innerText = "Chemin de démonstration";
             document.getElementById('details-subtitle').innerText = `${DB.nodes[path[0]].name} ↔ ${DB.nodes[path[path.length-1]].name}`;
             document.getElementById('details-qid').innerText = `${path.length - 1} saut(s) relationnel(s)`;
             document.getElementById('details-image-container').classList.add('hidden');
-            document.getElementById('details-text').innerText = "Les relations professionnelles et artistiques entre ces personnalités ont été localisées de manière transparente.";
+            document.getElementById('details-text').innerText = "Ce chemin est calculé dans le graphe local illustratif. Les relations et références ci-dessous ne sont pas vérifiées.";
 
             pathStepsContainer.innerHTML = '';
             
@@ -1108,7 +1168,7 @@
                                     <span>${edgeData.year}</span>
                                 </div>
                                 <p class="text-[9px] text-slate-400 mt-0.5">${edgeData.desc}</p>
-                                <span class="text-[8px] text-slate-500 block mt-1 font-mono">${edgeData.evidence}</span>
+                                <span class="text-[8px] text-slate-500 block mt-1 font-mono">Référence illustrative non vérifiée : ${edgeData.evidence}</span>
                             </div>
                         `;
                         pathStepsContainer.insertAdjacentHTML('beforeend', edgeHtml);
@@ -1163,14 +1223,41 @@
             const consoleBox = document.getElementById('console-logs');
             const time = new Date().toLocaleTimeString();
             const colorClass = isError ? 'text-red-400' : 'text-emerald-400';
-            const logEntry = `<div class="${colorClass}"><span class="text-slate-600 font-mono">[${time}]</span> ${message}</div>`;
-            consoleBox.insertAdjacentHTML('beforeend', logEntry);
+            const logEntry = document.createElement('div');
+            logEntry.className = colorClass;
+            logEntry.textContent = `[${time}] ${message}`;
+            consoleBox.appendChild(logEntry);
+            while (consoleBox.children.length > 100) consoleBox.firstElementChild.remove();
             consoleBox.scrollTop = consoleBox.scrollHeight;
         }
 
         // Initialize 3D Engine on load
         window.onload = () => {
-            init3D();
+            const people = document.getElementById('available-people');
+            Object.values(DB.nodes).forEach(node => {
+                const option = document.createElement('option');
+                option.value = node.name;
+                people.appendChild(option);
+            });
+            ['input-person-a', 'input-person-b', 'input-explore'].forEach(id => {
+                const input = document.getElementById(id);
+                input.setAttribute('list', 'available-people');
+                input.addEventListener('keydown', event => {
+                    if (event.key === 'Enter') triggerSearch();
+                });
+            });
+            document.getElementById('details-image').addEventListener('error', () => {
+                document.getElementById('details-image-container').classList.add('hidden');
+            });
+            try {
+                init3D();
+                graphReady = true;
+            } catch (error) {
+                if (renderer) renderer.dispose();
+                document.getElementById('canvas-container').replaceChildren();
+                document.getElementById('app-notice').textContent = "Vue 3D indisponible (WebGL ou bibliothèque externe). La recherche et les chemins restent accessibles. Données de démonstration non vérifiées.";
+                logToServerConsole('[3D] Mode texte activé : vue 3D indisponible.', true);
+            }
             // Load initial sandbox scenario
             loadScenario('sarroche', 'lefebvre');
         };
