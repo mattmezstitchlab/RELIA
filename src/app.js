@@ -433,9 +433,9 @@ function renderPath(path, result = {}) {
     scope.append(text('summary', 'Que couvre cette recherche ?'));
     scope.append(text('p', `${state.graph.nodes.size} personnes et autres entités · ${state.graph.edges.size} relations consultées, dont ${eligibleEdges} utilisables pour les chemins.`, 'fine-print'));
     if (result.expansions !== undefined) scope.append(text('p', `${result.expansions} explorations · ${result.queries} requêtes · jusqu’à ${result.depth || LIMITS.depth} niveaux par personne.`, 'fine-print'));
+    scope.append(text('p', `Plafonds de cette recherche : ${LIMITS.nodes} entités, ${LIMITS.edges} relations, ${LIMITS.expansions} explorations et ${LIMITS.queries} requêtes.`, 'fine-print'));
     if (result.incomplete || state.graph.partial) scope.append(text('p', 'Certaines sources ou données sont indisponibles : une partie du réseau peut manquer.', 'fine-print'));
     if (result.bounded || state.graph.capped) scope.append(text('p', 'Une limite de taille ou de recherche a été atteinte ; d’autres connexions n’ont pas pu être vérifiées.', 'fine-print'));
-    if (!result.incomplete && !result.bounded && !state.graph.partial && !state.graph.capped) scope.append(text('p', `La recherche reste limitée à ${LIMITS.depth} niveaux, ${LIMITS.expansions} explorations et ${LIMITS.queries} requêtes.`, 'fine-print'));
     container.append(scope);
   } else {
     container.append(text('h3', state.dataset === 'demo' ? 'Chemin fictif · Démonstration fictive' : 'Chemin avec références · graphe consulté'));
