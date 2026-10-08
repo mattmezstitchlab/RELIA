@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { eligible } from './data.js';
 
-export const COLORS = { person: '#ecebf9', work: '#a081ff', place: '#58dfcc', institution: '#719fff', event: '#e7b969', unknown: '#8f899f' };
+export const COLORS = { person: '#7551b5', work: '#6d5bb7', place: '#087f78', institution: '#3f69a8', event: '#a75c12', unknown: '#687180' };
+const DARK_COLORS = { person: '#ecebf9', work: '#a081ff', place: '#58dfcc', institution: '#719fff', event: '#e7b969', unknown: '#8f899f' };
+const NETWORK_COLORS = { light: ['#2877c7', '#c44f68', '#8060b7'], dark: ['#83bdff', '#ff9eb0', '#c6a2ff'] };
 export const AVATAR_LIMIT = 12;
 export function selectAvatarCandidates(nodes, degree, { reduced = false, mobile = false, deviceMemory = 4, focused = null, pathNodes = new Set() } = {}) {
   if (reduced || deviceMemory < 2 || nodes.length > (mobile ? 14 : 36)) return [];
@@ -12,10 +15,25 @@ export function selectAvatarCandidates(nodes, degree, { reduced = false, mobile 
     .slice(0, AVATAR_LIMIT);
 }
 export function emphasizedScale(scale, emphasized) { return scale * (emphasized ? 1.12 : 1); }
+export function selectVisibleLabels(candidates, limit, gap = 10) {
+  const priority = candidate => candidate.identity ? 0 : candidate.selected ? 1 : candidate.path ? 2 : candidate.neighbor ? 3 : 4;
+  const ordered = [...candidates].sort((a, b) => priority(a) - priority(b) || (b.degree || 0) - (a.degree || 0) || a.id.localeCompare(b.id));
+  const accepted = [];
+  for (const candidate of ordered) {
+    const rank = priority(candidate);
+    if (rank >= 3 && accepted.length >= limit) continue;
+    const overlaps = accepted.some(other =>
+      candidate.left < other.right + gap && candidate.right + gap > other.left &&
+      candidate.top < other.bottom + gap && candidate.bottom + gap > other.top);
+    if (overlaps && rank >= 3) continue;
+    accepted.push(candidate);
+  }
+  return new Set(accepted.map(candidate => candidate.id));
+}
 export class NetworkView {
   constructor(container, { onSelect, onEdge, onHover, onUnavailable }) {
     this.container = container;
-    this.nodes = new Map(); this.edges = new Map(); this.path = new Set(); this.pathNodes = new Set();
+    this.nodes = new Map(); this.edges = new Map(); this.path = new Set(); this.pathNodes = new Set(); this.roots = [];
     this.onSelect = onSelect; this.onEdge = onEdge; this.onHover = onHover;
     this.reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
     this.scene = new THREE.Scene();
@@ -126,7 +144,7 @@ export class NetworkView {
     for (const edge of visibleEdges) for (const id of [edge.from, edge.to]) degree.set(id, (degree.get(id) || 0) + 1);
     for (const data of graph.nodes.values()) {
       if (!this.nodes.has(data.id)) {
-        const color = COLORS[data.type] || COLORS.institution;
+        const color = this.themeColors()[data.type] || this.themeColors().unknown;
         const mesh = new THREE.Mesh(this.geometry, new THREE.MeshBasicMaterial({ color, transparent: true }));
         mesh.userData.id = data.id;
         const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTexture, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
@@ -134,7 +152,7 @@ export class NetworkView {
         const angle = index * 2.39996;
         const radius = 38 + Math.sqrt(index + 1) * 15;
         const position = new THREE.Vector3(Math.cos(angle) * radius, Math.sin(angle) * radius * 0.64, Math.sin(index * 1.9) * 29);
-        const label = document.createElement('span'); label.textContent = data.label; label.className = 'graph-label'; this.labels.append(label);
+        const label = document.createElement('span'); label.textContent = data.label; label.className = 'graph-label'; label.dataset.type = data.type; this.labels.append(label);
         this.nodes.set(data.id, { id: data.id, data, mesh, halo, position, velocity: new THREE.Vector3(), label, born: performance.now() + index * 28, avatar: null, avatarURL: null, avatarFailedURL: null });
         this.scene.add(mesh, halo);
       } else { this.nodes.get(data.id).data = data; }
@@ -143,8 +161,8 @@ export class NetworkView {
       node.mesh.scale.setScalar((data.type === 'person' ? 1.55 : 1.2) * relevance);
       node.baseScale = node.mesh.scale.x;
       node.halo.scale.setScalar((data.type === 'person' ? 14 : 11) * relevance);
-      node.mesh.material.color.set(COLORS[data.type] || COLORS.unknown);
-      node.halo.material.color.set(COLORS[data.type] || COLORS.unknown);
+      node.mesh.material.color.set(this.themeColors()[data.type] || this.themeColors().unknown);
+      node.halo.material.color.set(this.themeColors()[data.type] || this.themeColors().unknown);
       index++;
     }
     this.updateAvatars(degree);
@@ -158,7 +176,7 @@ export class NetworkView {
         this.edges.set(data.id, { data, line, particle, offset: this.edges.size * 0.173 }); this.scene.add(line, particle);
       } else this.edges.get(data.id).data = data;
     }
-    this.iterations = 0; this.dirty = true;
+    this.updateNetworks(); this.iterations = 0; this.dirty = true;
     if (this.reduced.matches) for (let i = 0; i < 180; i++) this.physics();
   }
   disposeAvatar(node) {
@@ -228,6 +246,34 @@ export class NetworkView {
     if (this.degree) this.updateAvatars(this.degree);
     this.dirty = true;
   }
+    themeColors() { return document.body.dataset.theme === 'dark' ? DARK_COLORS : COLORS; }
+    setTheme() { this.dirty = true; }
+    setRoots(ids) {
+      this.roots = ids.slice(0, 2);
+      this.updateNetworks();
+      this.dirty = true;
+    }
+    updateNetworks() {
+      this.networks = new Map();
+      const adjacency = new Map();
+      for (const edge of this.edges.values()) {
+        if (!eligible(edge.data)) continue;
+        for (const [from, to] of [[edge.data.from, edge.data.to], [edge.data.to, edge.data.from]]) {
+          if (!adjacency.has(from)) adjacency.set(from, []);
+          adjacency.get(from).push(to);
+        }
+      }
+      this.roots.forEach((root, side) => {
+        const queue = [root], seen = new Set([root]);
+        for (let index = 0; index < queue.length; index++) {
+          const id = queue[index];
+          this.networks.set(id, (this.networks.get(id) || 0) | (1 << side));
+          for (const neighbor of adjacency.get(id) || []) if (!seen.has(neighbor)) {
+            seen.add(neighbor); queue.push(neighbor);
+          }
+        }
+      });
+    }
     physics() {
     const nodes = [...this.nodes.values()];
     for (let i = 0; i < nodes.length; i++) {
@@ -263,6 +309,8 @@ export class NetworkView {
       if (edge.data.from === focused) neighbors.add(edge.data.to);
       if (edge.data.to === focused) neighbors.add(edge.data.from);
     }
+    const labelCandidates = [];
+    const colors = this.themeColors();
     for (const [index, node] of [...this.nodes.values()].entries()) {
       const emphasized = node.id === focused;
       node.mesh.scale.setScalar(emphasizedScale(node.baseScale, emphasized));
@@ -281,14 +329,49 @@ export class NetworkView {
       const opacity = animate ? Math.max(0, Math.min(1, (time - node.born) / 850)) : 1;
       const highlighted = this.pathNodes.has(node.id);
       const dim = this.pathNodes.size ? !highlighted : focused && !neighbors.has(node.id);
-      const color = highlighted || node.id === focused ? '#edc879' : COLORS[node.data.type] || COLORS.unknown;
-      node.mesh.material.color.set(color); node.halo.material.color.set(color);
+      const rootSide = this.roots.indexOf(node.id);
+      const mask = this.networks.get(node.id) || 0;
+      const theme = document.body.dataset.theme === 'dark' ? 'dark' : 'light';
+      const networkColor = mask ? NETWORK_COLORS[theme][mask === 3 ? 2 : mask === 2 ? 1 : 0] : null;
+      const color = highlighted || node.id === focused
+        ? (theme === 'dark' ? '#edc879' : '#a76500')
+        : rootSide >= 0 ? NETWORK_COLORS[theme][rootSide] : colors[node.data.type] || colors.unknown;
+      node.mesh.material.color.set(color); node.halo.material.color.set(networkColor || color);
       node.mesh.material.opacity = opacity * (dim ? 0.18 : 0.96);
       node.halo.material.opacity = opacity * (dim ? 0.12 : 0.7);
       if (node.avatar) node.avatar.material.opacity = opacity * (dim ? 0.16 : 0.98);
       const screen = node.mesh.position.clone().project(this.camera);
-      node.label.style.transform = `translate(${(screen.x + 1) / 2 * this.width + 10}px, ${(-screen.y + 1) / 2 * this.height - 5}px)`;
-      node.label.style.opacity = screen.z > 1 || screen.z < -1 ? 0 : opacity * (dim ? 0.16 : 0.64);
+      const x = (screen.x + 1) / 2 * this.width + 12, y = (-screen.y + 1) / 2 * this.height - 12;
+      node.label.dataset.identity = rootSide < 0 ? '' : rootSide === 0 ? 'A' : 'B';
+      node.label.dataset.network = String(mask);
+      node.label.classList.toggle('graph-label--identity', rootSide >= 0);
+      node.label.classList.toggle('graph-label--selected', node.id === focused);
+      node.label.classList.toggle('graph-label--path', highlighted);
+      node.label.classList.toggle('graph-label--neighbor', neighbors.has(node.id));
+      const width = Math.min(230, Math.max(58, node.data.label.length * (rootSide >= 0 ? 9 : 7.5) + (rootSide >= 0 ? 38 : 24)));
+      const height = rootSide >= 0 ? 34 : 28;
+      if (screen.z <= 1 && screen.z >= -1 && x > -width && x < this.width && y > -height && y < this.height) {
+        labelCandidates.push({
+          id: node.id, left: x, top: y, right: x + width, bottom: y + height, x, y,
+          identity: rootSide >= 0, selected: node.id === focused, path: highlighted,
+          neighbor: neighbors.has(node.id), degree: this.degree?.get(node.id) || 0,
+          opacity: opacity * (dim ? 0.4 : 1),
+        });
+      }
+    }
+    const distance = this.camera.position.distanceTo(this.controls.target);
+    const zoom = Math.max(0.45, Math.min(1.8, 235 / distance));
+    const labelLimit = Math.max(6, Math.min(32, Math.floor(this.width * this.height / 24000 * zoom)));
+    const visibleLabels = selectVisibleLabels(labelCandidates, labelLimit);
+    const candidatesById = new Map(labelCandidates.map(candidate => [candidate.id, candidate]));
+    for (const node of this.nodes.values()) {
+      const label = node.label, candidate = candidatesById.get(node.id);
+      const visible = candidate && visibleLabels.has(node.id);
+      label.hidden = !visible;
+      if (!visible) continue;
+      label.style.transform = `translate(${candidate.x}px, ${candidate.y}px)`;
+      label.style.opacity = String(candidate.opacity);
+      label.style.setProperty('--label-scale', String(Math.max(0.86, Math.min(1.12, zoom))));
     }
     for (const edge of this.edges.values()) {
       const from = this.nodes.get(edge.data.from).mesh.position, to = this.nodes.get(edge.data.to).mesh.position;
@@ -296,9 +379,14 @@ export class NetworkView {
       positions.setXYZ(0, from.x, from.y, from.z); positions.setXYZ(1, to.x, to.y, to.z); positions.needsUpdate = true;
       edge.line.geometry.computeBoundingSphere();
       const highlighted = this.path.has(edge.data.id), near = edge.data.from === focused || edge.data.to === focused;
-      edge.line.material.color.set(highlighted ? '#edc879' : edge.data.evidence === 'unverified' ? '#67586c' : near ? '#bda6f1' : '#69567f');
+      const mask = (this.networks.get(edge.data.from) || 0) | (this.networks.get(edge.data.to) || 0);
+      const theme = document.body.dataset.theme === 'dark' ? 'dark' : 'light';
+      const palette = NETWORK_COLORS[theme];
+      const lineColor = highlighted ? (theme === 'dark' ? '#edc879' : '#a76500') :
+        mask ? palette[mask === 3 ? 2 : mask === 2 ? 1 : 0] : theme === 'dark' ? '#69567f' : '#9aa3b2';
+      edge.line.material.color.set(lineColor);
       const reveal = animate ? Math.max(0, Math.min(1, (time - Math.max(this.nodes.get(edge.data.from).born, this.nodes.get(edge.data.to).born)) / 850)) : 1;
-      edge.line.material.opacity = reveal * (highlighted ? 0.9 : this.pathNodes.size ? 0.06 : near ? 0.72 : 0.26);
+      edge.line.material.opacity = reveal * (highlighted ? 0.96 : this.pathNodes.size ? 0.12 : near ? 0.78 : mask ? 0.46 : 0.28);
       edge.particle.visible = animate && reveal > 0.6 && (!this.pathNodes.size || highlighted);
       edge.particle.position.lerpVectors(from, to, (time / 6500 + edge.offset) % 1);
       edge.particle.material.color.set(highlighted ? '#ffe1a1' : '#b8a2e8');

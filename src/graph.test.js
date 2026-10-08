@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
-import { AVATAR_LIMIT, NetworkView, emphasizedScale, selectAvatarCandidates } from './graph.js';
+import { AVATAR_LIMIT, NetworkView, emphasizedScale, selectAvatarCandidates, selectVisibleLabels } from './graph.js';
 
 function cameraHarness(reduced = false) {
   const view = Object.create(NetworkView.prototype);
@@ -68,4 +68,18 @@ test('avatar feature falls back for large graphs and low-memory devices; emphasi
   assert.deepEqual(selectAvatarCandidates(nodes.slice(0, 10), new Map(), { deviceMemory: 1 }), []);
   assert.equal(emphasizedScale(2, true), 2.24);
   assert.equal(emphasizedScale(2, false), 2);
+});
+
+test('identity and path labels take precedence while overlapping secondary labels are hidden', () => {
+  const label = (id, x, options = {}) => ({
+    id, left: x, right: x + 90, top: 10, bottom: 38, degree: 1, ...options,
+  });
+  const visible = selectVisibleLabels([
+    label('crowded', 4, { neighbor: true }),
+    label('identity-a', 0, { identity: true }),
+    label('identity-b', 5, { identity: true }),
+    label('path', 300, { path: true }),
+    label('neighbor', 120, { neighbor: true }),
+  ], 4);
+  assert.deepEqual([...visible].sort(), ['identity-a', 'identity-b', 'neighbor', 'path']);
 });
