@@ -61,6 +61,11 @@
         </div>
       </section>
       <aside id="entity-panel" class="entity-panel glass" aria-label="Détails de l’entité" hidden><button id="close-panel" class="icon-button close" aria-label="Fermer les détails">×</button><div id="entity-content"></div></aside>
+      <aside id="timeline-rail" class="timeline-rail glass" aria-label="Chronologie interactive" hidden>
+        <div class="timeline-rail-heading"><div><p class="eyebrow">REPÈRES DANS LE TEMPS</p><h2 id="timeline-entity"></h2></div><span id="timeline-count" class="timeline-rail-count"></span></div>
+        <p id="timeline-rail-note" class="timeline-rail-note"></p>
+        <div class="timeline-rail-scroll" tabindex="0" aria-label="Étapes datées, défilement indépendant"><ol id="timeline-steps" class="timeline-rail-steps"></ol></div>
+      </aside>
       <section id="help" class="help-panel glass" hidden>
         <button id="close-help" class="icon-button close" aria-label="Fermer l’aide">×</button><p class="eyebrow">LE GRAPHE, EN TOUTE TRANSPARENCE</p><h2>Explorer n’est pas affirmer.</h2>
         <p>Les identités, relations et références réelles proviennent de Wikidata. « Documenté — référence Wikidata » décrit la provenance d’une assertion, pas la confirmation de sa véracité. RELIA affiche les références sans contrôle automatisé des faits dans les sources externes. Les assertions sans URL de référence exploitable (P854) ni document cité (P248) sont non vérifiées et exclues des chemins ; « importé de » (P143) seul ne suffit pas.</p>
