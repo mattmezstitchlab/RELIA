@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b0b14" />
+    <meta name="description" content="RELIA explore les relations culturelles documentées dans Wikidata, avec leurs sources et leurs limites." />
+    <title>RELIA — Tout est relié.</title>
+  </head>
+  <body>
+    <div id="graph" aria-label="Graphe relationnel interactif"></div>
+    <div class="vignette" aria-hidden="true"></div>
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="RELIA, accueil">RELIA<span></span></a>
+      <div class="top-actions"><span class="preview-label" id="dataset-label">Aperçu · Démonstration fictive</span><button id="dataset-switch" class="subtle">Explorer les données réelles ↗</button><button id="help-button" class="icon-button" aria-label="Aide et limites">?</button></div>
+    </header>
+    <main>
+      <section class="hero" id="hero">
+        <p class="eyebrow"><span class="live-dot"></span> UN AUTRE REGARD SUR LES CONNEXIONS</p>
+        <h1>Tout est <em>relié.</em></h1>
+        <p class="intro">Explorez les liens invisibles entre les personnes,<br class="desktop-break" /> les œuvres et les histoires.</p>
+        <div id="main-search" class="search-component"></div>
+        <div class="examples"><span>Un point de départ ?</span><button data-example="Sandrine Sarroche">Sandrine Sarroche ↗</button><button data-example="Pierre Lefebvre">Pierre Lefebvre ↗</button></div>
+        <div class="start-options"><button id="start-real" class="primary">Explorer les sources réelles <span>↗</span></button><button id="start-demo" class="subtle">Voir la démonstration fictive</button></div>
+        <p class="hero-note">Les données réelles sont sourcées. L’aperçu est entièrement fictif.</p>
+      </section>
+      <section id="workspace" class="workspace glass" hidden>
+        <div class="workspace-heading"><span class="eyebrow" id="workspace-title">EXPLORER</span><button id="workspace-collapse" class="icon-button" aria-label="Réduire le panneau">−</button></div>
+        <div id="explore-section"><p id="explore-intro" class="muted">Choisissez une identité Wikidata pour commencer.</p><div id="workspace-search" class="search-component"></div><div id="selected-identity"></div></div>
+        <div id="connect-section" hidden>
+          <h2>Relier deux personnes</h2><p class="muted">Deux identités, un chemin documenté.</p>
+          <label class="field-label">PERSONNE DE DÉPART</label><div id="from-search" class="search-component"></div>
+          <label class="field-label">PERSONNE D’ARRIVÉE</label><div id="to-search" class="search-component"></div>
+          <div id="connection-identities" class="muted"></div>
+          <button id="find-path" class="primary wide">Chercher un chemin</button><button id="cancel-path" class="subtle" hidden>Annuler la recherche</button>
+          <p class="fine-print">Plus court chemin dans le graphe consulté, pas dans tout Wikidata. Relations avec références uniquement ; aucun contrôle automatisé des faits dans les sources externes.</p>
+          <p class="fine-print">Limites : 4 niveaux d’exploration depuis chaque personne, 12 explorations, 40 requêtes, 100 entités. La longueur d’un chemin déjà documenté n’est pas limitée. La recherche entrante peut être indisponible.</p>
+          <div id="path-result"></div>
+        </div>
+        <div id="time-section" hidden>
+          <h2>Un regard dans le temps</h2><p class="muted">Le filtre s’applique au graphe et aux chemins.</p>
+          <div class="year-fields"><label>De <input id="year-from" type="number" min="-5000" max="2100" placeholder="1900" /></label><label>À <input id="year-to" type="number" min="-5000" max="2100" placeholder="2026" /></label></div>
+          <label class="check-label"><input id="include-undated" type="checkbox" checked /> Inclure les relations sans date connue</label>
+          <button id="apply-time" class="primary wide">Appliquer la période</button><button id="clear-time" class="subtle">Tout le temps</button><p id="time-status" class="fine-print"></p>
+        </div>
+        <div id="sources-section" hidden><h2>Les sources, pas les suppositions.</h2><p class="muted">Sélectionnez un lien pour sa provenance exacte.</p><div id="source-list"></div></div>
+      </section>
+      <aside id="entity-panel" class="entity-panel glass" aria-label="Détails de l’entité" hidden><button id="close-panel" class="icon-button close" aria-label="Fermer les détails">×</button><div id="entity-content"></div></aside>
+      <section id="help" class="help-panel glass" hidden>
+        <button id="close-help" class="icon-button close" aria-label="Fermer l’aide">×</button><p class="eyebrow">LE GRAPHE, EN TOUTE TRANSPARENCE</p><h2>Explorer n’est pas affirmer.</h2>
+        <p>Les identités, relations et références réelles proviennent de Wikidata. « Documenté — référence Wikidata » décrit la provenance d’une assertion, pas la confirmation de sa véracité. RELIA affiche les références sans contrôle automatisé des faits dans les sources externes. Les assertions sans URL de référence exploitable (P854) ni document cité (P248) sont non vérifiées et exclues des chemins ; « importé de » (P143) seul ne suffit pas.</p>
+        <p>Seules des propriétés professionnelles et culturelles sélectionnées sont explorées. Les relations familiales ou intimes ne font pas partie de l’exploration. Les lieux de naissance, de décès et la localisation administrative sont visibles pour le contexte, mais exclus des chemins. Les liens sont parcourus dans les deux sens. Le réseau consulté est limité à 100 entités et 180 relations ; la recherche de chemin est bornée et ne garantit pas le plus court chemin mondial.</p>
+        <p>Le filtre temporel utilise uniquement les dates de la relation : début (P580), fin (P582) ou date ponctuelle (P585). Il ne déduit aucune période des dates biographiques, des carrières ou de la publication des sources. Les années négatives sont conservées ; les dates de précision insuffisante restent inconnues.</p>
+        <p>Glissez pour tourner, pincez ou utilisez la molette pour zoomer. Cliquez une entité pour la consulter et étendre le réseau ; double-cliquez pour centrer. Tous les éléments sont aussi disponibles dans la liste accessible.</p>
+        <p>Cache en mémoire : 5 minutes, 80 réponses maximum. Les requêtes sont publiques et envoyées à Wikimedia. Les dates manquantes sont indiquées. La démonstration est entièrement fictive et isolée des données réelles.</p>
+      </section>
+      <div id="tooltip" class="tooltip" hidden></div>
+      <div id="status" class="status glass" role="status" aria-live="polite" hidden><span id="status-text"></span><button id="retry" class="subtle" hidden>Réessayer</button></div>
+      <section class="accessible-panel glass" id="accessible-panel" hidden><div class="workspace-heading"><h2>Réseau accessible</h2><button id="close-accessible" class="icon-button" aria-label="Fermer la liste">×</button></div><div id="accessible-list"></div></section>
+    </main>
+    <footer>
+      <div class="legend" aria-label="Types d’entités"><span><i class="person"></i>Personnes</span><span><i class="work"></i>Œuvres</span><span><i class="place"></i>Lieux</span><span><i class="institution"></i>Institutions</span><span><i class="event"></i>Événements</span></div>
+      <nav class="mode-nav glass" aria-label="Modes d’exploration"><button data-mode="explore" class="active"><span>◈</span>Explorer</button><button data-mode="connect"><span>⌁</span>Relier</button><button data-mode="time"><span>◷</span>Temps</button><button data-mode="sources"><span>▤</span>Sources</button></nav>
+      <div class="view-tools"><button id="show-accessible" class="icon-button" aria-label="Afficher la liste accessible">☷</button><button id="reset-camera" class="icon-button" aria-label="Réinitialiser la caméra">⤢</button><span>GLISSEZ POUR EXPLORER</span></div>
+    </footer>
+    <script type="module" src="/src/app.js"></script>
+  </body>
+</html>
