@@ -46,6 +46,18 @@ test('a zero-edge path retains its one highlighted node', () => {
   assert.deepEqual([...view.pathNodes], ['Q1']); assert.equal(view.path.size, 0);
   view.highlightPath(null); assert.equal(view.pathNodes.size, 0);
 });
+test('a timeline step highlights one relation without replacing the saved path, and reset restores it', () => {
+  const view = cameraHarness();
+  const pathEdge = { id: 'p1', from: 'Q1', to: 'Q2' }, stepEdge = { id: 's1', from: 'Q1', to: 'Q3' };
+  view.highlightPath({ nodes: ['Q1', 'Q2'], edges: [pathEdge] });
+  view.highlightStep(stepEdge);
+  assert.deepEqual([...view.path], ['s1']); assert.deepEqual([...view.pathNodes], ['Q1', 'Q3']);
+  view.highlightPath({ nodes: ['Q4'], edges: [] });
+  assert.deepEqual([...view.pathNodes], ['Q1', 'Q3']);
+  view.highlightStep(null);
+  assert.deepEqual([...view.pathNodes], ['Q4']); assert.equal(view.path.size, 0);
+  view.highlightPath(null); assert.equal(view.pathNodes.size, 0);
+});
 
 test('avatar candidates are people-only, image-backed, capped, and prioritized without reduced motion', () => {
   const nodes = Array.from({ length: 20 }, (_, index) => ({

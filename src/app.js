@@ -2,6 +2,7 @@ import './styles.css';
 import { COLORS, NetworkView } from './graph.js';
 import { LIMITS, PROPERTIES, bestLabel, demoGraph, emptyGraph, eligible, entityFromRaw, expandEntity, findRemotePath, getEntities, getWikipediaSummary, inPeriod, safeURL, searchEntities, shortestPath } from './data.js';
 import { getBnfEnrichment } from './bnf.js';
+import { buildTimeline } from './timeline.js';
 import { compareSnapshots, createSnapshot, exportRegistry, validateSnapshot } from './discovery.js';
 
 const $ = id => document.getElementById(id);
@@ -31,7 +32,7 @@ function restoreDiscovery() {
 const state = {
   dataset: 'welcome', graph: demoGraph(), mode: 'explore', period: { from: null, to: null, undated: true },
   selected: null, pair: { from: null, to: null }, controller: null, version: 0, retry: null, path: null,
-  discoverySearch: null, discovery: restoreDiscovery(),
+  discoverySearch: null, discovery: restoreDiscovery(), timelineStep: null, timelineEntity: null,
 };
 let biographyController = null, biographyVersion = 0;
 function cancelBiography() { biographyController?.abort(); biographyController = null; biographyVersion++; }
@@ -171,6 +172,7 @@ for (const side of ['from', 'to']) {
 }
 function invalidatePath() {
   if (state.controller) abortWork();
+  clearTimelineStep();
   state.path = null; state.discoverySearch = null; view.highlightPath(null); $('path-result').replaceChildren();
 }
 function renderPair() {
@@ -188,7 +190,7 @@ function renderPair() {
   } else key.hidden = true;
 }
 function chooseDataset(dataset) {
-  abortWork(); cancelBiography(); state.dataset = dataset; state.graph = dataset === 'demo' ? demoGraph() : emptyGraph();
+  abortWork(); cancelBiography(); clearTimelineStep({ render: false }); state.dataset = dataset; state.graph = dataset === 'demo' ? demoGraph() : emptyGraph();
   state.selected = null; state.path = null; state.discoverySearch = null; state.pair = { from: null, to: null };
   view.setSelected(null);
   state.period = { from: null, to: null, undated: true };
@@ -353,10 +355,12 @@ function loadBnfDetails(entity, container = $('entity-content')) {
     }
   });
 }
-function renderEntity(id) {
+function renderEntity(id, { keepScroll = false } = {}) {
   const entity = state.graph.nodes.get(id); if (!entity) return;
   cancelBiography();
-  const container = $('entity-content'); container.replaceChildren(); $('entity-panel').hidden = false;
+  if (state.timelineStep && (state.timelineEntity !== id || !visibleEdges().some(edge => edge.id === state.timelineStep))) clearTimelineStep({ render: false });
+  const panel = $('entity-panel'), scroll = keepScroll ? panel.scrollTop : 0;
+  const container = $('entity-content'); container.replaceChildren(); panel.hidden = false;
   container.append(text('p', `${typeLabels[entity.type] || 'Entité'} · ${entity.fictional ? 'Démonstration fictive' : entity.id}`, 'entity-tag'));
   if (entity.typeBasis === 'relationship') container.append(text('p', 'Catégorie d’affichage suggérée par les propriétés culturelles ou une relation ; elle ne constitue pas une classification certaine.', 'fine-print'));
   if (entity.image) {
@@ -396,16 +400,79 @@ function renderEntity(id) {
   group('Institutions', edges.filter(e => neighbor(e)?.type === 'institution'));
   group('Autres connexions', edges.filter(e => !['work', 'institution'].includes(neighbor(e)?.type)));
   if (!edges.length) container.append(text('p', 'Aucune relation culturelle disponible dans le graphe et la période consultés.', 'fine-print'));
-  const dated = edges.filter(e => edgeDates(e) !== 'Date de relation inconnue').sort((a, b) => {
-    const first = e => Math.min(...Object.values(e.dates).flat().map(d => d.year));
-    return first(a) - first(b);
-  });
-  if (dated.length) {
-    container.append(text('h3', entity.fictional ? 'Chronologie fictive' : 'Chronologie documentée'));
-    for (const edge of dated) container.append(text('p', `${edgeDates(edge)} · ${edge.label} · ${neighbor(edge)?.label || ''}`, 'fine-print'));
-  }
+  renderTimeline(container, entity);
   container.append(text('h3', 'Provenance des relations'));
   for (const edge of edges) container.append(button(`${edge.label} · ${entity.fictional ? 'Démonstration fictive' : edge.property} ↗`, () => { showEdge(edge); if (innerWidth <= 700) $('entity-panel').hidden = true; }));
+  panel.scrollTop = scroll;
+}
+function timelineStepButton(step, entity, selectable) {
+  const edge = step.edge, other = step.other;
+  const active = state.timelineStep === edge.id;
+  const row = button('', () => (active ? clearTimelineStep({ announce: true }) : selectTimelineStep(edge, entity)), `timeline-step${active ? ' active' : ''}`);
+  row.dataset.edge = edge.id;
+  row.setAttribute('aria-pressed', active ? 'true' : 'false');
+  row.disabled = !selectable;
+  const dot = text('i', '', 'entity-color'); dot.style.background = COLORS[other?.type] || COLORS.unknown; dot.style.color = COLORS[other?.type] || COLORS.unknown;
+  const body = text('span', '', 'timeline-step-body');
+  if (step.when) body.append(text('b', step.when.display, 'timeline-date'));
+  body.append(text('span', `${edge.label} · ${other?.label || step.otherId}`, 'timeline-label'));
+  body.append(text('small', `${edge.fictional ? 'Fictif' : edge.evidence === 'referenced' ? 'Référencé' : 'Non vérifié'}${selectable ? '' : ' · masqué par le filtre de période'}`));
+  row.append(dot, body);
+  return row;
+}
+function renderTimeline(container, entity) {
+  const visible = new Set(visibleEdges().map(edge => edge.id));
+  const all = buildTimeline(entity.id, [...state.graph.edges.values()], state.graph.nodes);
+  const dated = all.dated.filter(step => visible.has(step.id));
+  const section = text('section', '', 'timeline'); section.setAttribute('aria-label', 'Parcours dans le temps');
+  section.append(text('h3', entity.fictional ? 'Chronologie fictive' : 'Chronologie des relations'));
+  if (all.biography.born || all.biography.died) {
+    const bio = text('p', '', 'timeline-biography');
+    bio.append(text('span', 'Repères biographiques, distincts des dates de relation : ', 'timeline-biography-title'));
+    bio.append(text('span', [all.biography.born && `naissance ${all.biography.born.display}`, all.biography.died && `décès ${all.biography.died.display}`].filter(Boolean).join(' · ')));
+    section.append(bio);
+  }
+  section.append(text('p', `${dated.length} étape${dated.length > 1 ? 's' : ''} datée${dated.length > 1 ? 's' : ''} par début, fin ou date ponctuelle de la relation${entity.fictional ? '' : ' (P580, P582, P585)'}. Les dates de publication des sources ne datent jamais une relation.`, 'fine-print'));
+  if (state.timelineStep) section.append(button('Réinitialiser la sélection', () => clearTimelineStep({ announce: true }), 'timeline-reset'));
+  const datedDetails = document.createElement('details'); datedDetails.className = 'timeline-group'; datedDetails.open = true;
+  datedDetails.append(text('summary', `Chronologie · ${dated.length}`));
+  const list = document.createElement('ol'); list.className = 'timeline-list';
+  for (const step of dated) { const item = document.createElement('li'); item.append(timelineStepButton(step, entity, true)); list.append(item); }
+  if (!dated.length) datedDetails.append(text('p', 'Aucune relation datée dans le graphe et la période consultés. Aucune date n’est déduite.', 'fine-print'));
+  else datedDetails.append(list);
+  const undatedDetails = document.createElement('details'); undatedDetails.className = 'timeline-group';
+  undatedDetails.open = all.undated.some(step => step.id === state.timelineStep);
+  undatedDetails.append(text('summary', `Date inconnue · ${all.undated.length}`));
+  if (!all.undated.length) undatedDetails.append(text('p', 'Toutes les relations consultées portent une date de relation.', 'fine-print'));
+  else {
+    const undatedList = document.createElement('ul'); undatedList.className = 'timeline-list';
+    for (const step of all.undated) { const item = document.createElement('li'); item.append(timelineStepButton(step, entity, visible.has(step.id))); undatedList.append(item); }
+    undatedDetails.append(text('p', 'Relations sans date de relation exploitable, conservées et consultables.', 'fine-print'), undatedList);
+  }
+  section.append(datedDetails, undatedDetails);
+  container.append(section);
+}
+function selectTimelineStep(edge, entity) {
+  state.timelineStep = edge.id; state.timelineEntity = entity.id;
+  view.highlightStep(edge);
+  const other = edge.from === entity.id ? edge.to : edge.from;
+  view.focus(other);
+  renderEntity(entity.id, { keepScroll: true }); focusTimelineStep(edge.id);
+  const otherLabel = state.graph.nodes.get(other)?.label || other;
+  status(`Étape sélectionnée : ${edge.label} · ${otherLabel} · ${edgeDates(edge)}. La constellation met en évidence cette relation.`);
+}
+function focusTimelineStep(edgeId) {
+  [...$('entity-content').querySelectorAll('.timeline-step')].find(element => element.dataset.edge === edgeId)?.focus({ preventScroll: true });
+}
+function clearTimelineStep({ render = true, announce = false } = {}) {
+  if (!state.timelineStep) return;
+  const entityId = state.timelineEntity, edgeId = state.timelineStep;
+  state.timelineStep = null; state.timelineEntity = null;
+  view.highlightStep(null);
+  if (render && entityId && state.selected === entityId && !$('entity-panel').hidden) {
+    renderEntity(entityId, { keepScroll: true });
+    if (announce) { view.focus(entityId); focusTimelineStep(edgeId); status('Sélection chronologique réinitialisée · exploration générale rétablie.'); }
+  }
 }
 function renderAccessible() {
   const container = $('accessible-list'); container.replaceChildren();
@@ -418,6 +485,7 @@ function renderAccessible() {
   }
 }
 function renderPath(path, result = {}) {
+  clearTimelineStep();
   const container = $('path-result'); container.replaceChildren(); state.path = path; view.highlightPath(path);
   if (!path) {
     const incomplete = result.incomplete || result.bounded;

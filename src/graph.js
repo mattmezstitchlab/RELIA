@@ -394,6 +394,14 @@ export class NetworkView {
     this.renderer.render(this.scene, this.camera); this.dirty = false;
   }
   highlightPath(path) {
+    this.basePath = path || null;
+    if (!this.step) this.applyHighlight(this.basePath);
+  }
+  highlightStep(edge) {
+    this.step = edge ? { edges: [edge], nodes: [edge.from, edge.to] } : null;
+    this.applyHighlight(this.step || this.basePath);
+  }
+  applyHighlight(path) {
     this.path = new Set(path?.edges.map(e => e.id) || []); this.pathNodes = new Set(path?.nodes || []);
     if (this.degree) this.updateAvatars(this.degree);
     this.dirty = true;
