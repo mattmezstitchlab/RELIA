@@ -4,10 +4,11 @@ import { compareSnapshots, createSnapshot, exportRegistry, validateSnapshot } fr
 
 const sourceIds = ['fixture:baseline'];
 const params = { depth: 4, maxNodes: 100, maxEdges: 180, period: { from: null, to: null, undated: true } };
-const reference = url => ({ id: `ref:${url}`, urls: [url], documents: [], retrievedAt: '2026-10-01T00:00:00.000Z' });
+const reference = (url, sourceId = 'fixture:baseline') => ({ id: `ref:${url}`, urls: [url], documents: [], sourceId, retrievedAt: '2026-10-01T00:00:00.000Z' });
 const relation = (id, from, to, extra = {}) => ({
   id, from, to, property: 'P108', label: 'employeur', rank: 'normal', fictional: false,
-  evidence: 'referenced', claimStatus: 'assertion', references: [reference(`https://fixtures.invalid/${id}`)], ...extra,
+  evidence: 'referenced', claimStatus: 'assertion', sourceIds: ['fixture:baseline'],
+  references: [reference(`https://fixtures.invalid/${id}`)], ...extra,
 });
 function graph(nodes = [], edges = [], { partial = false, capped = false, expanded = [] } = {}) {
   return { nodes: new Map(nodes.map(node => [node.id, node])), edges: new Map(edges.map(edge => [edge.id, edge])),
@@ -36,8 +37,9 @@ for (let number = 1; number <= 10; number++) {
   fixtures.push({
     number, expected: ['NEW_ENTITY', 'NEW_PATH', 'NEW_RELATION'],
     pair: pair(number, graph([{ id: a }, { id: b }]), graph(
-      [{ id: a }, { id: b }, { id: middle }],
-      [relation(`fixture-${number}-1`, a, middle), relation(`fixture-${number}-2`, middle, b)],
+      [{ id: a }, { id: b }, { id: middle, sourceIds: ['fixture:enrichment'] }],
+      [relation(`fixture-${number}-1`, a, middle, { sourceIds: ['fixture:enrichment'] }),
+        relation(`fixture-${number}-2`, middle, b, { sourceIds: ['fixture:enrichment'] })],
     )),
   });
 }
@@ -47,7 +49,7 @@ for (let number = 1; number <= 10; number++) {
     number: 11, expected: ['NEW_EVIDENCE'],
     pair: pair(11, graph([{ id: a }, { id: b }], [relation('fixture-11', a, b)]),
       graph([{ id: a }, { id: b }], [relation('fixture-11', a, b, { references: [
-        reference('https://fixtures.invalid/fixture-11'), reference('https://fixtures.invalid/independent-proof-11'),
+        reference('https://fixtures.invalid/fixture-11'), reference('https://fixtures.invalid/independent-proof-11', 'fixture:enrichment'),
       ] })])),
   });
 }
@@ -55,9 +57,9 @@ for (let number = 1; number <= 10; number++) {
   const [a, b, oldId, newId] = ['SYN-12-A', 'SYN-12-B', 'SYN-12-OLD', 'SYN-12-NEW'];
   fixtures.push({
     number: 12, expected: ['IDENTITY_RECONCILED'],
-    pair: pair(12, graph([{ id: a }, { id: b }, { id: oldId, externalIds: [{ namespace: 'isni', value: '0000000123456789', reliable: true }] }],
+    pair: pair(12, graph([{ id: a }, { id: b }, { id: oldId, externalIds: [{ namespace: 'isni', value: '0000000123456789', reliable: true, sourceId: 'fixture:baseline' }] }],
       [relation('fixture-12-1', a, oldId), relation('fixture-12-2', oldId, b)]),
-    graph([{ id: a }, { id: b }, { id: newId, externalIds: [{ namespace: 'isni', value: '0000000123456789', reliable: true }] }],
+    graph([{ id: a }, { id: b }, { id: newId, sourceIds: ['fixture:enrichment'], externalIds: [{ namespace: 'isni', value: '0000000123456789', reliable: true, sourceId: 'fixture:enrichment' }] }],
       [relation('fixture-12-1', a, newId), relation('fixture-12-2', newId, b)])),
   });
 }
@@ -66,7 +68,7 @@ for (let number = 1; number <= 10; number++) {
   fixtures.push({
     number: 13, expected: ['HYPOTHESIS'],
     pair: pair(13, graph([{ id: a }, { id: b }]), graph([{ id: a }, { id: b }], [
-      relation('fixture-13', a, b, { evidence: 'unverified', claimStatus: 'hypothesis', references: [] }),
+      relation('fixture-13', a, b, { sourceIds: ['fixture:enrichment'], evidence: 'unverified', claimStatus: 'hypothesis', references: [] }),
     ])),
   });
 }
@@ -75,7 +77,9 @@ for (let number = 1; number <= 10; number++) {
   fixtures.push({
     number: 14, expected: ['INCOMPARABLE'],
     pair: pair(14, graph([{ id: a }, { id: b }], [], { partial: true }), graph(
-      [{ id: a }, { id: b }, { id: mid }], [relation('fixture-14-1', a, mid), relation('fixture-14-2', mid, b)])),
+      [{ id: a }, { id: b }, { id: mid, sourceIds: ['fixture:enrichment'] }],
+      [relation('fixture-14-1', a, mid, { sourceIds: ['fixture:enrichment'] }),
+        relation('fixture-14-2', mid, b, { sourceIds: ['fixture:enrichment'] })])),
   });
 }
 {
@@ -99,14 +103,16 @@ for (let number = 1; number <= 10; number++) {
   fixtures.push({
     number: 17, expected: ['NEW_ENTITY'],
     pair: pair(17, graph([{ id: a }, { id: b }, { id: beforeId, label: 'Alex Martin' }]),
-      graph([{ id: a }, { id: b }, { id: beforeId, label: 'Alex Martin' }, { id: afterId, label: 'Alex Martin' }])),
+      graph([{ id: a }, { id: b }, { id: beforeId, label: 'Alex Martin' }, { id: afterId, label: 'Alex Martin', sourceIds: ['fixture:enrichment'] }])),
   });
 }
 {
   const [a, b] = ['SYN-18-A', 'SYN-18-B'];
   fixtures.push({
     number: 18, expected: ['NEW_PATH', 'NEW_RELATION'],
-    pair: pair(18, graph([{ id: a }, { id: b }]), graph([{ id: a }, { id: b }], [relation('fixture-18', b, a)])),
+    pair: pair(18, graph([{ id: a }, { id: b }]), graph([{ id: a }, { id: b }], [
+      relation('fixture-18', b, a, { sourceIds: ['fixture:enrichment'] }),
+    ])),
   });
 }
 {
@@ -114,7 +120,7 @@ for (let number = 1; number <= 10; number++) {
   fixtures.push({
     number: 19, expected: ['CONTRADICTION'],
     pair: pair(19, graph([{ id: a }, { id: b }, { id: c }], [relation('fixture-19-claim', a, b)]),
-      graph([{ id: a }, { id: b }, { id: c }], [relation('fixture-19-claim', a, c)])),
+      graph([{ id: a }, { id: b }, { id: c }], [relation('fixture-19-claim', a, c, { sourceIds: ['fixture:enrichment'] })])),
   });
 }
 {
@@ -159,7 +165,6 @@ test('hypotheses never enter paths; exact identifiers keep homonyms separate', (
 });
 
 test('reconciliation requires unique declared reliable external identifiers, never labels', () => {
-  const ambiguous = fixtures[11].pair;
   const before = createSnapshot({
     graph: graph([{ id: 'SYN-12-A' }, { id: 'SYN-12-B' }, { id: 'OLD-1', externalIds: [{ namespace: 'isni', value: 'duplicate', reliable: true }] },
       { id: 'OLD-2', externalIds: [{ namespace: 'isni', value: 'duplicate', reliable: true }] }]),
@@ -171,8 +176,26 @@ test('reconciliation requires unique declared reliable external identifiers, nev
   });
   const result = compareSnapshots(before, after);
   assert.equal(result.entries.some(entry => entry.type === 'IDENTITY_RECONCILED'), false);
-  assert.ok(result.entries.some(entry => entry.type === 'NEW_ENTITY' && entry.entities.includes('NEW-1')));
-  assert.equal(ambiguous.before.origin, 'simulated');
+  assert.ok(result.entries.some(entry => entry.type === 'INCOMPARABLE' && entry.details.candidateType === 'NEW_ENTITY'));
+});
+
+test('experimental BnF identifiers cannot reconcile identities before adapter validation', () => {
+  const before = createSnapshot({
+    graph: graph([{ id: 'SYN-BNF-A' }, { id: 'SYN-BNF-B' }, { id: 'OLD-BNF', externalIds: [
+      { namespace: 'bnf', value: 'ark:/12148/cb12345678x', reliable: true, sourceId: 'bnf' },
+    ] }]),
+    roots: ['SYN-BNF-A', 'SYN-BNF-B'], sources: sourceIds, parameters: params, origin: 'simulated', retrievedAt: '2026-10-01T00:00:00Z',
+  });
+  const after = createSnapshot({
+    graph: graph([{ id: 'SYN-BNF-A' }, { id: 'SYN-BNF-B' }, { id: 'NEW-BNF', sourceIds: ['fixture:enrichment'], externalIds: [
+      { namespace: 'data.bnf.fr', value: 'ark:/12148/cb12345678x', reliable: true, sourceId: 'bnf' },
+    ] }]),
+    roots: ['SYN-BNF-A', 'SYN-BNF-B'], sources: [...sourceIds, 'fixture:enrichment'], parameters: params,
+    origin: 'simulated', retrievedAt: '2026-10-02T00:00:00Z',
+  });
+  const result = compareSnapshots(before, after);
+  assert.equal(result.entries.some(entry => entry.type === 'IDENTITY_RECONCILED'), false);
+  assert.ok(result.entries.some(entry => entry.type === 'NEW_ENTITY' && entry.entities.includes('NEW-BNF')));
 });
 
 test('new proof is detected by independent reference identity, not retrieval timestamps', () => {
@@ -190,13 +213,56 @@ test('new proof is detected by independent reference identity, not retrieval tim
   assert.equal(compareSnapshots(fixtures[10].pair.before, alteredRetrieval).entries.some(entry => entry.type === 'NEW_EVIDENCE'), false);
 });
 
+test('unattributed data updates cannot be credited to the newly added source', () => {
+  const [a, b] = ['SYN-ATTR-A', 'SYN-ATTR-B'];
+  const before = createSnapshot({
+    graph: graph([{ id: a }, { id: b }]), roots: [a, b], sources: sourceIds, parameters: params,
+    origin: 'simulated', retrievedAt: '2026-10-01T00:00:00Z',
+  });
+  const after = createSnapshot({
+    graph: graph([{ id: a }, { id: b }], [relation('fixture-unattributed', a, b)]),
+    roots: [a, b], sources: [...sourceIds, 'fixture:enrichment'], parameters: params,
+    origin: 'simulated', retrievedAt: '2026-10-02T00:00:00Z',
+  });
+  const result = compareSnapshots(before, after);
+  assert.equal(result.entries.some(entry => entry.type === 'NEW_RELATION' || entry.type === 'NEW_PATH'), false);
+  assert.ok(result.entries.some(entry => entry.type === 'INCOMPARABLE' && entry.details.candidateType === 'NEW_RELATION'));
+});
+
+test('parallel assertions for one relation are registered once with all independent references', () => {
+  const [a, b] = ['SYN-DUP-A', 'SYN-DUP-B'];
+  const before = createSnapshot({
+    graph: graph([{ id: a }, { id: b }]), roots: [a, b], sources: sourceIds, parameters: params,
+    origin: 'simulated', retrievedAt: '2026-10-01T00:00:00Z',
+  });
+  const after = createSnapshot({
+    graph: graph([{ id: a }, { id: b }], [
+      relation('fixture-dup-1', a, b, { sourceIds: ['fixture:enrichment'], references: [reference('https://fixtures.invalid/duplicate-a', 'fixture:enrichment')] }),
+      relation('fixture-dup-2', a, b, { sourceIds: ['fixture:enrichment'], references: [reference('https://fixtures.invalid/duplicate-b', 'fixture:enrichment')] }),
+    ]),
+    roots: [a, b], sources: [...sourceIds, 'fixture:enrichment'], parameters: params,
+    origin: 'simulated', retrievedAt: '2026-10-02T00:00:00Z',
+  });
+  const result = compareSnapshots(before, after);
+  const relations = result.entries.filter(entry => entry.type === 'NEW_RELATION');
+  assert.equal(relations.length, 1);
+  assert.equal(relations[0].details.relations.length, 2);
+  assert.equal(relations[0].references.length, 2);
+});
+
 test('snapshot integrity, incompatible scopes, and reproducible JSON export are enforced', () => {
   const { before, after } = fixtures[0].pair;
   assert.equal(validateSnapshot(before), true);
+  assert.equal(validateSnapshot(JSON.parse(JSON.stringify(before))), true);
   assert.equal(validateSnapshot({ ...before, identities: ['changed', 'roots'] }), false);
   const mismatch = compareSnapshots(fixtures[15].pair.before, fixtures[15].pair.after);
   assert.equal(mismatch.comparable, false);
   assert.equal(mismatch.entries[0].type, 'INCOMPARABLE');
+  const reversedRoots = createSnapshot({
+    graph: graph([{ id: 'SYN-01-A' }, { id: 'SYN-01-B' }]), roots: ['SYN-01-B', 'SYN-01-A'],
+    sources: [...sourceIds, 'fixture:enrichment'], parameters: params, origin: 'simulated', retrievedAt: '2026-10-03T00:00:00Z',
+  });
+  assert.equal(compareSnapshots(before, reversedRoots).comparable, false);
   const first = exportRegistry({ snapshots: [before, after], comparisons: [compareSnapshots(before, after)] });
   const second = exportRegistry({ snapshots: [before, after], comparisons: [compareSnapshots(before, after)] });
   assert.equal(first, second);

@@ -178,7 +178,7 @@ function renderPair() {
 }
 function chooseDataset(dataset) {
   abortWork(); cancelBiography(); state.dataset = dataset; state.graph = dataset === 'demo' ? demoGraph() : emptyGraph();
-  state.selected = null; state.path = null; state.pair = { from: null, to: null };
+  state.selected = null; state.path = null; state.discoverySearch = null; state.pair = { from: null, to: null };
   view.setSelected(null);
   state.period = { from: null, to: null, undated: true };
   $('year-from').value = ''; $('year-to').value = ''; $('include-undated').checked = true;
@@ -486,7 +486,10 @@ function compareDiscovery() {
 }
 function setDiscoverySnapshot(slot, snapshot) {
   state.discovery[slot] = snapshot;
-  compareDiscovery(); persistDiscovery(); renderDiscovery();
+  compareDiscovery();
+  const persisted = persistDiscovery();
+  renderDiscovery();
+  if (!persisted) $('discovery-status').textContent = 'Snapshot conservé pour cette session, mais stockage local indisponible. Téléchargez le JSON pour le garder.';
 }
 function captureDiscoverySnapshot(slot) {
   if (state.dataset !== 'real') {
@@ -509,6 +512,8 @@ function captureDiscoverySnapshot(slot) {
       },
       paths: state.path ? [state.path] : [],
       search: state.discoverySearch,
+      errors: state.graph.partial || state.discoverySearch?.incomplete
+        ? ['Source distante ou exploration incomplète; le détail de l’erreur n’est pas conservé par le collecteur actuel.'] : [],
       limitations: ['Instantané du graphe Wikidata conservé en mémoire; ce n’est pas une extraction complète de Wikidata.'],
     });
     setDiscoverySnapshot(slot, snapshot);
@@ -519,6 +524,10 @@ function captureDiscoverySnapshot(slot) {
 }
 function importDiscoverySnapshot(slot, file) {
   if (!file) return;
+  if (file.size > 5_000_000) {
+    $('discovery-status').textContent = 'Import refusé : la limite de fichier est de 5 Mo.';
+    return;
+  }
   file.text().then(raw => {
     const snapshot = JSON.parse(raw);
     if (!validateSnapshot(snapshot)) throw new Error('Le fichier ne contient pas un snapshot RELIA Discovery valide ou son empreinte est incorrecte.');
@@ -557,7 +566,7 @@ function renderDiscovery() {
       text('p', entry.explanation),
       text('p', `Entités exactes : ${entry.entities.join(' → ') || 'non précisées'}${entry.sources.length ? ` · Sources attribuées : ${entry.sources.join(', ')}` : ' · Adaptateur de provenance non attribué à cette assertion'}`));
     const relation = entry.details.relation;
-    const assertions = relation ? [relation.before, relation.after].filter(Boolean) : entry.path?.edges || [];
+    const assertions = entry.details.relations || (relation ? [relation.before, relation.after].filter(Boolean) : entry.path?.edges || []);
     for (const edge of assertions) {
       const from = state.graph.nodes.get(edge.from)?.label || edge.from;
       const to = state.graph.nodes.get(edge.to)?.label || edge.to;
@@ -566,6 +575,11 @@ function renderDiscovery() {
     for (const reference of entry.references) {
       reference.urls?.forEach(url => card.append(link(url, url)));
       reference.documents?.forEach(id => card.append(link(`Document cité · ${id} ↗`, `https://www.wikidata.org/wiki/${id}`)));
+    }
+    for (const identifier of entry.details.identifiers || []) {
+      card.append(text('p', `Identifiant externe réconcilié : ${identifier.namespace}:${identifier.value}${identifier.sourceId ? ` · Source : ${identifier.sourceId}` : ''}`));
+      if (identifier.url) card.append(link('Consulter l’identifiant externe ↗', identifier.url));
+      for (const evidence of identifier.references || []) evidence.urls?.forEach(url => card.append(link(url, url)));
     }
     if (entry.limitations.length) card.append(text('p', `Limites : ${entry.limitations.join(' · ')}`));
     card.append(text('p', `Vérification humaine : ${entry.verificationStatus}`, 'fine-print'));
@@ -615,4 +629,6 @@ window.addEventListener('pagehide', event => {
   for (const search of [mainSearch, workspaceSearch, ...Object.values(pairSearches)]) search.clearResults();
   if (!event.persisted) view.dispose();
 });
+compareDiscovery();
 renderGraph();
+renderDiscovery();
