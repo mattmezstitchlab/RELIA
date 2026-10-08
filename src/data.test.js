@@ -151,7 +151,7 @@ test('failed incoming expansions remain retryable; success clears partial state 
       if (incomingCalls === 1) throw new Error('temporary outage');
       return { ok: true, json: async () => ({ results: { bindings: [] } }) };
     }
-    return { ok: true, json: async () => ({ entities: { Q987640: { id: 'Q987640', claims: {}, labels: { fr: { value: 'Événement de test' } } } }) };
+    return { ok: true, json: async () => ({ entities: { Q987640: { id: 'Q987640', claims: {}, labels: { fr: { value: 'Événement de test' } } } } }) };
   });
   const graph = emptyGraph(); graph.nodes.set('Q987640', { id: 'Q987640', type: 'event' });
   await expandEntity(graph, 'Q987640');
