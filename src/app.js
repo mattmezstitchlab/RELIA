@@ -177,7 +177,7 @@ function openMode(mode) {
   if (state.dataset === 'welcome') chooseDataset('real');
   state.mode = mode; $('workspace').hidden = false;
   for (const [name, id] of [['explore', 'explore-section'], ['connect', 'connect-section'], ['time', 'time-section'], ['sources', 'sources-section']]) $(id).hidden = mode !== name;
-  for (const element of document.querySelectorAll('[data-mode]')) { element.classList.toggle('active', element.dataset.mode === mode); element.setAttribute('aria-pressed', element.dataset.mode === mode ? 'true' : 'false'); }
+  for (const element of document.querySelectorAll('[data-mode]')) { element.classList.toggle('active', element.dataset.mode === name); element.setAttribute('aria-pressed', element.dataset.mode === name ? 'true' : 'false'); }
   $('workspace-title').textContent = { explore: 'EXPLORER', connect: 'RELIER', time: 'TEMPS', sources: 'SOURCES' }[mode];
   if (mode === 'sources') renderSources();
   if (innerWidth <= 700) $('entity-panel').hidden = true;
@@ -231,7 +231,7 @@ function sourceCard(edge) {
     const block = text('div');
     block.append(text('h3', `Référence ${index + 1}`), text('div', `Empreinte : ${reference.hash || 'non fournie'}`));
     reference.urls.forEach(url => block.append(link(url, url)));
-    reference.documents.forEach(id => block.append(link(`Document cité · ${id} ↗`, `https://www.wikidata.org/wiki/${id}`));
+    reference.documents.forEach(id => block.append(link(`Document cité · ${id} ↗`, `https://www.wikidata.org/wiki/${id}`)));
     if (!reference.usable) block.append(text('p', 'Référence sans URL ni document cité exploitable. Ne suffit pas pour un chemin.', 'warning'));
     for (const date of reference.published) block.append(text('div', `Publication de la source : ${date.display}`));
     for (const date of reference.retrieved) block.append(text('div', `Consultation déclarée dans Wikidata : ${date.display}`));
