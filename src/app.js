@@ -1,6 +1,7 @@
 import './styles.css';
 import { COLORS, NetworkView } from './graph.js';
 import { LIMITS, PROPERTIES, bestLabel, demoGraph, emptyGraph, entityFromRaw, expandEntity, findRemotePath, getEntities, getWikipediaSummary, inPeriod, safeURL, searchEntities, shortestPath } from './data.js';
+import { getBnfEnrichment } from './bnf.js';
 
 const $ = id => document.getElementById(id);
 const typeLabels = { person: 'Personne', work: 'Œuvre', place: 'Lieu', institution: 'Institution', event: 'Événement', unknown: 'Type non déterminé' };
@@ -147,7 +148,7 @@ const workspaceSearch = new IdentitySearch('workspace-search', selected => state
 const pairSearches = {};
 for (const side of ['from', 'to']) {
   pairSearches[side] = new IdentitySearch(`${side}-search`, selected => {
-    state.pair[side] = selected; invalidatePath(); renderPair();
+    state.pair[side] = selected; view.setSelected(selected.id); invalidatePath(); renderPair();
   }, { peopleOnly: true, onEdit: () => { state.pair[side] = null; invalidatePath(); renderPair(); } });
 }
 function invalidatePath() {
@@ -160,6 +161,7 @@ function renderPair() {
 function chooseDataset(dataset) {
   abortWork(); cancelBiography(); state.dataset = dataset; state.graph = dataset === 'demo' ? demoGraph() : emptyGraph();
   state.selected = null; state.path = null; state.pair = { from: null, to: null };
+  view.setSelected(null);
   state.period = { from: null, to: null, undated: true };
   $('year-from').value = ''; $('year-to').value = ''; $('include-undated').checked = true;
   $('time-status').textContent = ''; $('path-result').replaceChildren(); $('selected-identity').replaceChildren();
@@ -190,6 +192,7 @@ function renderGraph() {
 async function selectReal(id) {
   if (state.dataset !== 'real') return;
   const work = beginWork(); state.selected = id;
+  view.setSelected(id);
   if (state.graph.nodes.has(id)) renderEntity(id);
   status('Consultation des relations et de leurs références…');
   try {
@@ -205,7 +208,7 @@ async function selectReal(id) {
 }
 function selectNode(id) {
   if (state.dataset === 'welcome') { chooseDataset('demo'); openMode('explore'); }
-  if (state.dataset === 'demo') { state.selected = id; renderEntity(id); view.focus(id); }
+  if (state.dataset === 'demo') { state.selected = id; view.setSelected(id); renderEntity(id); view.focus(id); }
   else selectReal(id);
 }
 function edgeDates(edge) {
@@ -277,6 +280,49 @@ async function loadBiography(entity, container) {
     }
   }
 }
+function renderBnfEnrichment(box, entity) {
+  box.replaceChildren(text('h3', 'Notice d’autorité · BnF'));
+  if (entity.bnfStatus === 'loading') {
+    box.append(text('p', 'Vérification d’un lien documentaire explicite avec data.bnf.fr…', 'fine-print'));
+  } else if (entity.bnfStatus === 'unavailable') {
+    box.append(text('p', 'Le service SPARQL BnF est indisponible. Les informations Wikidata restent inchangées ; aucun rapprochement par nom n’est tenté.', 'fine-print'),
+      button('Réessayer la consultation BnF', () => { entity.bnfStatus = null; loadBnfDetails(entity); }));
+  } else if (!entity.bnfEnrichment) {
+    box.append(text('p', 'Aucune notice liée par owl:sameAs n’a été retournée pour cette identité Wikidata. Cela ne prouve pas l’absence d’une notice BnF ; aucune recherche par nom n’est effectuée.', 'fine-print'));
+  } else {
+    const record = entity.bnfEnrichment;
+    box.append(link('Consulter la notice BnF ↗', record.recordUrl));
+    const labels = Object.entries(record.labels).flatMap(([language, values]) => values.map(value => `${value} (${language})`));
+    if (labels.length) box.append(text('p', `Libellés de la notice : ${labels.join(' · ')}`, 'fine-print'));
+    box.append(text('p', `Alignement explicite owl:sameAs avec ${entity.id} · ${record.attribution} · récupéré le ${new Date(record.retrievedAt).toLocaleString('fr-FR')}. Enrichissement d’identité uniquement, exclu des chemins.`, 'fine-print'));
+    box.append(link(`${record.license} · conditions de réutilisation BnF ↗`, record.licenseUrl));
+  }
+}
+function loadBnfDetails(entity, container = $('entity-content')) {
+  if (entity.type !== 'person' || entity.fictional) return;
+  let box = container.querySelector('.bnf-enrichment');
+  if (!box) { box = text('section', '', 'bnf-enrichment'); container.append(box); }
+  if (entity.bnfStatus === 'loading') { renderBnfEnrichment(box, entity); return; }
+  if (entity.bnfEnrichment || entity.bnfStatus === 'not-found') { renderBnfEnrichment(box, entity); return; }
+  entity.bnfStatus = 'loading';
+  renderBnfEnrichment(box, entity);
+  const signal = state.controller?.signal;
+  getBnfEnrichment(entity.id, { signal }).then(result => {
+    entity.bnfEnrichment = result;
+    entity.bnfStatus = result ? 'linked' : 'not-found';
+    if (state.dataset === 'real' && state.selected === entity.id) {
+      const currentBox = $('entity-content').querySelector('.bnf-enrichment');
+      if (currentBox) renderBnfEnrichment(currentBox, entity);
+    }
+  }).catch(error => {
+    if (signal?.aborted) { entity.bnfStatus = null; return; }
+    entity.bnfStatus = 'unavailable';
+    if (state.dataset === 'real' && state.selected === entity.id) {
+      const currentBox = $('entity-content').querySelector('.bnf-enrichment');
+      if (currentBox) renderBnfEnrichment(currentBox, entity);
+    }
+  });
+}
 function renderEntity(id) {
   const entity = state.graph.nodes.get(id); if (!entity) return;
   cancelBiography();
@@ -286,9 +332,13 @@ function renderEntity(id) {
   if (entity.image) {
     const image = document.createElement('img'); image.src = entity.image; image.alt = `Portrait ou illustration de ${entity.label} (Wikimedia Commons)`;
     image.referrerPolicy = 'no-referrer'; image.loading = 'lazy'; image.className = 'portrait'; image.addEventListener('error', () => image.remove()); container.append(image);
+    const file = `https://commons.wikimedia.org/wiki/File:${encodeURIComponent((entity.imageTitle || '').replaceAll(' ', '_'))}`;
+    container.append(link('Crédit, auteur et licence de l’image · Wikimedia Commons ↗', file));
   }
   container.append(text('h2', entity.label), text('p', entity.description || 'Description non disponible dans les sources consultées.', 'entity-description'));
   loadBiography(entity, container);
+  if (entity.bnfIdentifier) container.append(text('p', `Identifiant d’autorité BnF porté par Wikidata (P268) : ${entity.bnfIdentifier}`, 'fine-print'));
+  loadBnfDetails(entity, container);
   const info = text('div', '', 'entity-info');
   if (entity.born) info.append(text('span', `Naissance : ${entity.born.display}`, 'chip'));
   if (entity.died) info.append(text('span', `Décès : ${entity.died.display}`, 'chip'));

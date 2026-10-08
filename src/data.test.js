@@ -104,6 +104,18 @@ test('identity uses human Q5 and exact Wikipedia sitelinks, never name matching'
   assert.equal(entityFromRaw({ id: 'Q6', claims: {} }, 'event').type, 'event');
   assert.equal(entityFromRaw({ id: 'Q6', claims: { P31: [{ rank: 'normal', mainsnak: { datavalue: { value: { id: 'Q1656682' } } } }] } }).typeBasis, 'wikidata');
 });
+test('Commons avatars and BnF lookup inputs come only from the selected Wikidata claims', () => {
+  const person = entityFromRaw({ id: 'Q988110', claims: {
+    P31: [claim('Q5')], P18: [{ rank: 'normal', mainsnak: { datavalue: { value: 'Portrait de test.jpg' } } }],
+    P268: [{ rank: 'normal', mainsnak: { datavalue: { value: '11931374m' } } }],
+  } });
+  assert.equal(person.imageTitle, 'Portrait de test.jpg');
+  assert.match(person.avatarImage, /^https:\/\/commons\.wikimedia\.org\/wiki\/Special:FilePath\//);
+  assert.match(person.avatarImage, /width=96$/);
+  assert.equal(person.bnfIdentifier, '11931374m');
+  assert.equal(entityFromRaw({ id: 'Q988111', claims: {} }).bnfIdentifier, null);
+  assert.equal(entityFromRaw({ id: 'Q988112', claims: { P18: [claim('Q2')] } }).imageTitle, null);
+});
 test('remote search falls back to English and does not select or invent an identity', async t => {
   const languages = [];
   t.mock.method(globalThis, 'fetch', async url => {
