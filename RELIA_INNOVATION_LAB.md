@@ -2,8 +2,8 @@
 
 ## Audit du moteur et pistes d’exploration
 
-**Dépôt audité :** code de RELIA dans `/home/runner/work/RELIA/RELIA`  
-**Date :** 8 octobre 2026  
+**Dépôt audité :** code de RELIA dans `/home/runner/work/RELIA/RELIA`
+**Date :** 8 octobre 2026
 **Périmètre :** audit statique du dépôt et de ses tests. Aucune modification de l’application, requête sur les données de production, validation du site déployé ni vérification en direct de la disponibilité des services externes n’a été effectuée.
 
 > **RELIA — Tout est relié.** Une connexion affichée doit toujours montrer ce qui la soutient et ce que les données ne permettent pas de conclure.
