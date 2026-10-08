@@ -2,6 +2,16 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 export const COLORS = { person: '#ecebf9', work: '#a081ff', place: '#58dfcc', institution: '#719fff', event: '#e7b969', unknown: '#8f899f' };
+export const AVATAR_LIMIT = 12;
+export function selectAvatarCandidates(nodes, degree, { reduced = false, mobile = false, deviceMemory = 4, focused = null, pathNodes = new Set() } = {}) {
+  if (reduced || deviceMemory < 2 || nodes.length > (mobile ? 14 : 36)) return [];
+  return nodes.filter(node => node.type === 'person' && (node.avatarImage || node.image))
+    .sort((a, b) => Number(b.id === focused) - Number(a.id === focused) ||
+      Number(pathNodes.has(b.id)) - Number(pathNodes.has(a.id)) ||
+      (degree.get(b.id) || 0) - (degree.get(a.id) || 0))
+    .slice(0, AVATAR_LIMIT);
+}
+export function emphasizedScale(scale, emphasized) { return scale * (emphasized ? 1.12 : 1); }
 export class NetworkView {
   constructor(container, { onSelect, onEdge, onHover, onUnavailable }) {
     this.container = container;
@@ -30,6 +40,12 @@ export class NetworkView {
     this.controls.addEventListener('change', () => { this.dirty = true; });
     this.controls.addEventListener('start', () => this.cancelTransition());
     this.geometry = new THREE.SphereGeometry(1, 14, 10);
+    this.avatarGeometry = new THREE.CircleGeometry(1, 32);
+    this.avatarLoader = new THREE.TextureLoader().setCrossOrigin('anonymous');
+    this.avatarQueue = []; this.avatarQueued = new Map(); this.avatarLoads = 0;
+    this.mobile = window.matchMedia('(max-width: 700px)');
+    this.mobileListener = () => this.updateAvatars(this.degree || new Map());
+    this.mobile.addEventListener('change', this.mobileListener);
     const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128;
     const context = canvas.getContext('2d');
     const glow = context.createRadialGradient(64, 64, 0, 64, 64, 64);
@@ -69,7 +85,7 @@ export class NetworkView {
       if (this.reduced.matches && this.transition) {
         this.camera.position.copy(this.transition.toCamera); this.controls.target.copy(this.transition.toTarget); this.transition = null;
       }
-      this.controls.enableDamping = !this.reduced.matches; this.dirty = true;
+      this.controls.enableDamping = !this.reduced.matches; this.updateAvatars(this.degree || new Map()); this.dirty = true;
     };
     this.reduced.addEventListener('change', this.motionListener);
     this.tick = this.tick.bind(this); this.frame = requestAnimationFrame(this.tick);
@@ -89,7 +105,8 @@ export class NetworkView {
     if (!this.available) return null;
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.raycaster.setFromCamera(new THREE.Vector2((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1), this.camera);
-    const nodes = this.raycaster.intersectObjects([...this.nodes.values()].map(n => n.mesh), false);
+    const targets = [...this.nodes.values()].flatMap(node => node.avatar ? [node.avatar, node.mesh] : [node.mesh]);
+    const nodes = this.raycaster.intersectObjects(targets, false);
     if (nodes[0]) return { kind: 'node', record: this.nodes.get(nodes[0].object.userData.id) };
     const edges = this.raycaster.intersectObjects([...this.edges.values()].map(e => e.line), false);
     if (edges[0]) return { kind: 'edge', record: this.edges.get(edges[0].object.userData.id) };
@@ -99,7 +116,7 @@ export class NetworkView {
     if (!this.available) return;
     const ids = new Set(graph.nodes.keys()), edgeIDs = new Set(visibleEdges.map(e => e.id));
     for (const [id, node] of this.nodes) if (!ids.has(id)) {
-      this.scene.remove(node.mesh, node.halo); node.mesh.material.dispose(); node.halo.material.dispose(); node.label.remove(); this.nodes.delete(id);
+      this.scene.remove(node.mesh, node.halo); this.disposeAvatar(node); node.mesh.material.dispose(); node.halo.material.dispose(); node.label.remove(); this.nodes.delete(id);
     }
     for (const [id, edge] of this.edges) if (!edgeIDs.has(id)) {
       this.scene.remove(edge.line, edge.particle); edge.line.geometry.dispose(); edge.line.material.dispose(); edge.particle.material.dispose(); this.edges.delete(id);
@@ -118,17 +135,19 @@ export class NetworkView {
         const radius = 38 + Math.sqrt(index + 1) * 15;
         const position = new THREE.Vector3(Math.cos(angle) * radius, Math.sin(angle) * radius * 0.64, Math.sin(index * 1.9) * 29);
         const label = document.createElement('span'); label.textContent = data.label; label.className = 'graph-label'; this.labels.append(label);
-        this.nodes.set(data.id, { id: data.id, data, mesh, halo, position, velocity: new THREE.Vector3(), label, born: performance.now() + index * 28 });
+        this.nodes.set(data.id, { id: data.id, data, mesh, halo, position, velocity: new THREE.Vector3(), label, born: performance.now() + index * 28, avatar: null, avatarURL: null, avatarFailedURL: null });
         this.scene.add(mesh, halo);
       } else { this.nodes.get(data.id).data = data; }
       const node = this.nodes.get(data.id);
       const relevance = Math.min(1.8, 1 + Math.log2(1 + (degree.get(data.id) || 0)) * 0.17);
       node.mesh.scale.setScalar((data.type === 'person' ? 1.55 : 1.2) * relevance);
+      node.baseScale = node.mesh.scale.x;
       node.halo.scale.setScalar((data.type === 'person' ? 14 : 11) * relevance);
       node.mesh.material.color.set(COLORS[data.type] || COLORS.unknown);
       node.halo.material.color.set(COLORS[data.type] || COLORS.unknown);
       index++;
     }
+    this.updateAvatars(degree);
     for (const data of visibleEdges) if (this.nodes.has(data.from) && this.nodes.has(data.to)) {
       if (!this.edges.has(data.id)) {
         const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
@@ -142,7 +161,74 @@ export class NetworkView {
     this.iterations = 0; this.dirty = true;
     if (this.reduced.matches) for (let i = 0; i < 180; i++) this.physics();
   }
-  physics() {
+  disposeAvatar(node) {
+    if (node.avatar) {
+      this.scene.remove(node.avatar);
+      node.avatar.material.map?.dispose();
+      node.avatar.material.dispose();
+      node.avatar = null;
+    }
+  }
+  updateAvatars(degree) {
+    this.degree = degree;
+    const nodes = [...this.nodes.values()].map(node => node.data);
+    const candidates = selectAvatarCandidates(nodes, degree, {
+      reduced: this.reduced.matches, mobile: this.mobile.matches,
+      deviceMemory: navigator.deviceMemory ?? 4, focused: this.hovered || this.selected, pathNodes: this.pathNodes,
+    });
+    const wanted = new Map(candidates.map(data => [data.id, data.avatarImage || data.image]));
+    for (const node of this.nodes.values()) {
+      const url = wanted.get(node.id);
+      if (!url) {
+        this.disposeAvatar(node); node.avatarURL = null;
+        continue;
+      }
+      if (node.avatarURL === url || node.avatarFailedURL === url) continue;
+      this.disposeAvatar(node);
+      node.avatarURL = url;
+      this.avatarQueue.push({ id: node.id, url });
+      this.avatarQueued.set(node.id, url);
+    }
+    this.loadAvatarQueue();
+  }
+  loadAvatarQueue() {
+    while (this.avatarLoads < 3 && this.avatarQueue.length) {
+      const { id, url } = this.avatarQueue.shift();
+      if (this.avatarQueued.get(id) !== url) continue;
+      this.avatarQueued.delete(id);
+      const node = this.nodes.get(id);
+      if (!node || node.avatarURL !== url) continue;
+      this.avatarLoads++;
+      const finish = () => { this.avatarLoads--; this.loadAvatarQueue(); };
+      this.avatarLoader.load(url, texture => {
+        const current = this.nodes.get(id);
+        if (!current || current.avatarURL !== url) { texture.dispose(); finish(); return; }
+        texture.colorSpace = THREE.SRGBColorSpace;
+        const width = texture.image?.naturalWidth || texture.image?.width || 1;
+        const height = texture.image?.naturalHeight || texture.image?.height || 1;
+        if (width > height) {
+          texture.repeat.x = height / width; texture.offset.x = (1 - texture.repeat.x) / 2;
+        } else if (height > width) {
+          texture.repeat.y = width / height; texture.offset.y = (1 - texture.repeat.y) / 2;
+        }
+        current.avatar = new THREE.Mesh(this.avatarGeometry, new THREE.MeshBasicMaterial({
+          map: texture, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+        }));
+        current.avatar.userData.id = id;
+        this.scene.add(current.avatar); this.dirty = true; finish();
+      }, undefined, () => {
+        const current = this.nodes.get(id);
+        if (current?.avatarURL === url) { current.avatarURL = null; current.avatarFailedURL = url; }
+        finish();
+      });
+    }
+  }
+  setSelected(id) {
+    this.selected = id || null;
+    if (this.degree) this.updateAvatars(this.degree);
+    this.dirty = true;
+  }
+    physics() {
     const nodes = [...this.nodes.values()];
     for (let i = 0; i < nodes.length; i++) {
       const a = nodes[i];
@@ -171,25 +257,35 @@ export class NetworkView {
     if (!animate && !this.dirty) return;
     this.updateTransition(time);
     this.controls.update();
-    const neighbors = new Set([this.hovered]);
-    if (this.hovered) for (const edge of this.edges.values()) {
-      if (edge.data.from === this.hovered) neighbors.add(edge.data.to);
-      if (edge.data.to === this.hovered) neighbors.add(edge.data.from);
+    const focused = this.hovered || this.selected;
+    const neighbors = new Set([focused]);
+    if (focused) for (const edge of this.edges.values()) {
+      if (edge.data.from === focused) neighbors.add(edge.data.to);
+      if (edge.data.to === focused) neighbors.add(edge.data.from);
     }
     for (const [index, node] of [...this.nodes.values()].entries()) {
+      const emphasized = node.id === focused;
+      node.mesh.scale.setScalar(emphasizedScale(node.baseScale, emphasized));
       node.mesh.position.copy(node.position);
       if (animate) {
         node.mesh.position.x += Math.sin(time / 5000 + index) * 0.9;
         node.mesh.position.y += Math.cos(time / 6500 + index * 2) * 0.8;
       }
       node.halo.position.copy(node.mesh.position);
+      if (node.avatar) {
+        node.avatar.quaternion.copy(this.camera.quaternion);
+        const towardCamera = node.mesh.position.clone().sub(this.camera.position).negate().normalize();
+        node.avatar.position.copy(node.mesh.position).addScaledVector(towardCamera, node.mesh.scale.x * 1.06);
+        node.avatar.scale.setScalar(node.baseScale * (emphasized ? 1.12 : 1));
+      }
       const opacity = animate ? Math.max(0, Math.min(1, (time - node.born) / 850)) : 1;
       const highlighted = this.pathNodes.has(node.id);
-      const dim = this.hovered && !neighbors.has(node.id) || this.pathNodes.size && !highlighted;
-      const color = highlighted ? '#edc879' : COLORS[node.data.type] || COLORS.unknown;
+      const dim = this.pathNodes.size ? !highlighted : focused && !neighbors.has(node.id);
+      const color = highlighted || node.id === focused ? '#edc879' : COLORS[node.data.type] || COLORS.unknown;
       node.mesh.material.color.set(color); node.halo.material.color.set(color);
       node.mesh.material.opacity = opacity * (dim ? 0.18 : 0.96);
       node.halo.material.opacity = opacity * (dim ? 0.12 : 0.7);
+      if (node.avatar) node.avatar.material.opacity = opacity * (dim ? 0.16 : 0.98);
       const screen = node.mesh.position.clone().project(this.camera);
       node.label.style.transform = `translate(${(screen.x + 1) / 2 * this.width + 10}px, ${(-screen.y + 1) / 2 * this.height - 5}px)`;
       node.label.style.opacity = screen.z > 1 || screen.z < -1 ? 0 : opacity * (dim ? 0.16 : 0.64);
@@ -199,7 +295,7 @@ export class NetworkView {
       const positions = edge.line.geometry.attributes.position;
       positions.setXYZ(0, from.x, from.y, from.z); positions.setXYZ(1, to.x, to.y, to.z); positions.needsUpdate = true;
       edge.line.geometry.computeBoundingSphere();
-      const highlighted = this.path.has(edge.data.id), near = edge.data.from === this.hovered || edge.data.to === this.hovered;
+      const highlighted = this.path.has(edge.data.id), near = edge.data.from === focused || edge.data.to === focused;
       edge.line.material.color.set(highlighted ? '#edc879' : edge.data.evidence === 'unverified' ? '#67586c' : near ? '#bda6f1' : '#69567f');
       const reveal = animate ? Math.max(0, Math.min(1, (time - Math.max(this.nodes.get(edge.data.from).born, this.nodes.get(edge.data.to).born)) / 850)) : 1;
       edge.line.material.opacity = reveal * (highlighted ? 0.9 : this.pathNodes.size ? 0.06 : near ? 0.72 : 0.26);
@@ -210,7 +306,9 @@ export class NetworkView {
     this.renderer.render(this.scene, this.camera); this.dirty = false;
   }
   highlightPath(path) {
-    this.path = new Set(path?.edges.map(e => e.id) || []); this.pathNodes = new Set(path?.nodes || []); this.dirty = true;
+    this.path = new Set(path?.edges.map(e => e.id) || []); this.pathNodes = new Set(path?.nodes || []);
+    if (this.degree) this.updateAvatars(this.degree);
+    this.dirty = true;
   }
   cancelTransition() {
     this.transition = null;
@@ -253,8 +351,9 @@ export class NetworkView {
   dispose() {
     cancelAnimationFrame(this.frame); this.resizeObserver?.disconnect();
     if (this.motionListener) this.reduced.removeEventListener('change', this.motionListener);
+    if (this.mobileListener) this.mobile.removeEventListener('change', this.mobileListener);
     this.controls?.dispose();
     this.scene.traverse(object => { object.geometry?.dispose(); if (Array.isArray(object.material)) object.material.forEach(m => m.dispose()); else object.material?.dispose(); });
-    this.glowTexture?.dispose(); this.renderer?.dispose(); this.labels?.remove(); this.renderer?.domElement.remove();
+    this.glowTexture?.dispose(); this.avatarGeometry?.dispose(); this.renderer?.dispose(); this.labels?.remove(); this.renderer?.domElement.remove();
   }
 }

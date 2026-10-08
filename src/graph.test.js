@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
-import { NetworkView } from './graph.js';
+import { AVATAR_LIMIT, NetworkView, emphasizedScale, selectAvatarCandidates } from './graph.js';
 
 function cameraHarness(reduced = false) {
   const view = Object.create(NetworkView.prototype);
@@ -45,4 +45,27 @@ test('a zero-edge path retains its one highlighted node', () => {
   view.highlightPath({ nodes: ['Q1'], edges: [] });
   assert.deepEqual([...view.pathNodes], ['Q1']); assert.equal(view.path.size, 0);
   view.highlightPath(null); assert.equal(view.pathNodes.size, 0);
+});
+
+test('avatar candidates are people-only, image-backed, capped, and prioritized without reduced motion', () => {
+  const nodes = Array.from({ length: 20 }, (_, index) => ({
+    id: `Q${index + 1}`, type: index < 18 ? 'person' : 'work',
+    avatarImage: index < 16 ? `https://commons.wikimedia.org/image-${index}` : null,
+  }));
+  const degree = new Map(nodes.map((node, index) => [node.id, index]));
+  const chosen = selectAvatarCandidates(nodes, degree, { focused: 'Q1' });
+  assert.equal(chosen.length, AVATAR_LIMIT);
+  assert.equal(chosen[0].id, 'Q1');
+  assert.ok(chosen.every(node => node.type === 'person' && node.avatarImage));
+  assert.deepEqual(selectAvatarCandidates(nodes, degree, { reduced: true }), []);
+  assert.deepEqual(selectAvatarCandidates(nodes, degree, { mobile: true }), []);
+  assert.deepEqual(selectAvatarCandidates(nodes.slice(0, 14), degree, { mobile: true }).length, AVATAR_LIMIT);
+});
+
+test('avatar feature falls back for large graphs and low-memory devices; emphasis remains bounded', () => {
+  const nodes = Array.from({ length: 37 }, (_, index) => ({ id: `Q${index}`, type: 'person', image: 'https://commons.wikimedia.org/image' }));
+  assert.deepEqual(selectAvatarCandidates(nodes, new Map()), []);
+  assert.deepEqual(selectAvatarCandidates(nodes.slice(0, 10), new Map(), { deviceMemory: 1 }), []);
+  assert.equal(emphasizedScale(2, true), 2.24);
+  assert.equal(emphasizedScale(2, false), 2);
 });

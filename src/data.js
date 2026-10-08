@@ -107,6 +107,7 @@ export function entityFromRaw(raw, hint = 'unknown') {
     claims.P664?.length ? 'event' : claims.P159?.length ? 'institution' : hint === 'person' ? 'unknown' : hint;
   const type = explicitType || inferredType;
   const image = values(claims, 'P18')[0];
+  const imageTitle = typeof image === 'string' ? image : null;
   const wiki = raw.sitelinks?.frwiki || raw.sitelinks?.enwiki;
   const wikiLang = raw.sitelinks?.frwiki ? 'fr' : 'en';
   return {
@@ -114,7 +115,9 @@ export function entityFromRaw(raw, hint = 'unknown') {
     type, typeBasis: explicitType ? 'wikidata' : type === 'unknown' ? 'unknown' : 'relationship',
     fictional: false, raw, occupations: values(claims, 'P106').map(v => v.id).filter(isQID),
     born: dateValue(values(claims, 'P569')[0]), died: dateValue(values(claims, 'P570')[0]),
-    image: typeof image === 'string' ? `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(image)}?width=320` : null,
+    imageTitle, image: imageTitle ? `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(imageTitle)}?width=320` : null,
+    avatarImage: imageTitle ? `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(imageTitle)}?width=96` : null,
+    bnfIdentifier: values(claims, 'P268').find(value => typeof value === 'string') || null,
     wiki: wiki ? `https://${wikiLang}.wikipedia.org/wiki/${encodeURIComponent(wiki.title)}` : null,
     wikiTitle: wiki?.title, wikiLang,
   };
