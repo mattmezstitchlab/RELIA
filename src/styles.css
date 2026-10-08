@@ -251,3 +251,18 @@ body[data-theme=dark] .legend i{width:20px;height:20px;display:grid;place-items:
   body[data-theme=dark] .context-nav button{font-size:10px;padding:4px 6px}
   body[data-theme=dark] .mode-nav button,body[data-theme=dark] .mode-nav button.active{font-size:11px}
 }
+.timeline{margin-top:8px}.timeline-list{list-style:none;margin:0;padding:0 0 0 2px;border-left:2px solid #3a3049}.timeline-list li{margin:0}.timeline-step{position:relative;display:flex;align-items:flex-start;gap:10px;width:100%;min-height:44px;text-align:left;padding:10px 8px 10px 14px;border-radius:8px;font-size:12px;line-height:1.5}.timeline-step .entity-color{position:absolute;left:-6px;top:17px;width:9px;height:9px}.timeline-step-body{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere}.timeline-date{font-weight:700}.timeline-step small{display:block;font-size:10px;color:#94839f;margin-top:2px}.timeline-step.active{background:#2a2138;box-shadow:inset 3px 0 0 #edc879}.timeline-step:disabled{cursor:not-allowed}.timeline-group{margin:12px 0}.timeline-group summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-weight:600}.timeline-biography{font-size:12px;line-height:1.6;border:1px dashed #4b3d5b;border-radius:8px;padding:8px 10px;margin:8px 0}.timeline-biography-title{font-weight:600}.timeline-reset{min-height:44px;padding:8px 14px;border:1px solid #6d5a86;border-radius:8px;font-size:12px;font-weight:600;margin:4px 0 8px}
+body[data-theme=light] .timeline-list{border-left-color:#dfe4ec}
+body[data-theme=light] .timeline-step{font-size:15px;color:#202938}
+body[data-theme=light] .timeline-step small{font-size:13px;color:#606b7b}
+body[data-theme=light] .timeline-step:hover{background:#f4f1fa;color:#202938}
+body[data-theme=light] .timeline-step.active{background:#f1ebfb;box-shadow:inset 3px 0 0 #a76500}
+body[data-theme=light] .timeline-group summary{color:#604397;font-size:14px}
+body[data-theme=light] .timeline-biography{font-size:14px;color:#465366;border-color:#d5dce7;background:#fbfcfe}
+body[data-theme=light] .timeline-reset{color:#604397;border-color:#cdbfe8;font-size:14px;background:#fff}
+body[data-theme=dark] .timeline-step{color:#eee7f8}
+body[data-theme=dark] .timeline-step small{color:#b6acbf}
+body[data-theme=dark] .timeline-group summary{color:#c8b4ff;font-size:12px}
+body[data-theme=dark] .timeline-biography{color:#d8cfe4}
+body[data-theme=dark] .timeline-reset{color:#e6d9ff}
+@media(max-width:700px){body[data-theme=light] .timeline-step{font-size:14px;padding-right:4px}body[data-theme=light] .timeline-step small{font-size:12px}}
