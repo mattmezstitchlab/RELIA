@@ -36,10 +36,10 @@ export function selectVisibleLabels(candidates, limit, gap = 10) {
   return new Set(accepted.map(candidate => candidate.id));
 }
 export class NetworkView {
-  constructor(container, { onSelect, onEdge, onHover, onUnavailable }) {
+  constructor(container, { onSelect, onPlay = () => {}, onEdge, onHover, onUnavailable }) {
     this.container = container;
     this.nodes = new Map(); this.edges = new Map(); this.path = new Set(); this.pathNodes = new Set(); this.roots = [];
-    this.onSelect = onSelect; this.onEdge = onEdge; this.onHover = onHover;
+    this.onSelect = onSelect; this.onPlay = onPlay; this.onEdge = onEdge; this.onHover = onHover;
     this.reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(46, 1, 0.1, 1200);
@@ -165,12 +165,23 @@ export class NetworkView {
         const radius = 38 + Math.sqrt(index + 1) * 15;
         const position = new THREE.Vector3(Math.cos(angle) * radius, Math.sin(angle) * radius * 0.64, Math.sin(index * 1.9) * 29);
         const label = document.createElement('span'); label.className = 'graph-label'; label.dataset.type = data.type;
+        label.setAttribute('role', 'button'); label.tabIndex = 0; label.setAttribute('aria-label', data.label);
         const glyph = document.createElement('i'); glyph.className = 'graph-label-glyph'; glyph.setAttribute('aria-hidden', 'true');
         glyph.innerHTML = ICONS[TYPE_ICON[data.type]] || ICONS.dot;
         const name = document.createElement('span'); name.className = 'graph-label-name'; name.textContent = data.label;
-        label.append(glyph, name); this.labels.append(label);
-        // Même geste que le nœud : un clic sur l’étiquette sélectionne l’identité comme un clic sur le point.
-        label.addEventListener('click', event => { event.stopPropagation(); this.onSelect?.(data.id); });
+        const play = document.createElement('i'); play.className = 'graph-label-play'; play.setAttribute('aria-hidden', 'true'); play.innerHTML = ICONS.play;
+        label.append(glyph, name, play); this.labels.append(label);
+        // Un clic sur le nom fait comme un clic sur le point ; le bouton lecture ouvre les vidéos de cette personne.
+        label.addEventListener('click', event => {
+          event.stopPropagation();
+          if (event.target.closest('.graph-label-play')) this.onPlay?.(data.id);
+          else this.onSelect?.(data.id);
+        });
+        label.addEventListener('keydown', event => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          this.onSelect?.(data.id);
+        });
         this.nodes.set(data.id, { id: data.id, data, mesh, halo, position, velocity: new THREE.Vector3(), label, born: performance.now() + index * 28, avatar: null, avatarURL: null, avatarFailedURL: null });
         this.scene.add(mesh, halo);
       } else { this.nodes.get(data.id).data = data; }
@@ -379,7 +390,7 @@ export class NetworkView {
       node.label.classList.toggle('graph-label--selected', node.id === focused);
       node.label.classList.toggle('graph-label--path', highlighted);
       node.label.classList.toggle('graph-label--neighbor', neighbors.has(node.id));
-      const width = Math.min(260, Math.max(96, node.data.label.length * (rootSide >= 0 ? 10 : 8.6) + (rootSide >= 0 ? 64 : 52)));
+      const width = Math.min(260, Math.max(96, node.data.label.length * (rootSide >= 0 ? 10 : 8.6) + (rootSide >= 0 ? 64 : 52) + (node.label.classList.contains('graph-label--video') ? 30 : 0)));
       const height = rootSide >= 0 ? 42 : 36;
       if (screen.z <= 1 && screen.z >= -1 && x > -width && x < this.width && y > -height && y < this.height) {
         labelCandidates.push({
@@ -475,6 +486,14 @@ export class NetworkView {
     this.controls.target.lerpVectors(transition.fromTarget, transition.toTarget, eased);
     this.dirty = true;
     if (progress === 1) this.cancelTransition();
+  }
+  setVideoIds(ids) {
+    for (const node of this.nodes.values()) {
+      const withVideo = ids.has(node.id);
+      node.label.classList.toggle('graph-label--video', withVideo);
+      node.label.setAttribute('aria-label', withVideo ? `${node.data.label}, vidéos disponibles` : node.data.label);
+    }
+    this.dirty = true;
   }
   focus(id) {
     if (!this.available || !this.nodes.has(id)) return;

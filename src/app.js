@@ -15,15 +15,15 @@ import { voiceLabel } from './voice.js';
 const $ = id => document.getElementById(id);
 const DESKTOP = window.matchMedia('(min-width: 900px)');
 const typeLabels = { person: 'Personne', work: 'Œuvre', place: 'Lieu', institution: 'Institution', event: 'Événement', unknown: 'Type non déterminé' };
-const evidenceLabels = { referenced: 'Documenté — référence Wikidata', unverified: 'Assertion non vérifiée · sans référence exploitable', deprecated: 'Assertion obsolète · exclue des chemins' };
+const evidenceLabels = { referenced: 'Source disponible', unverified: 'Sans source', deprecated: 'Information ancienne' };
 const claimStatusLabels = {
-  assertion: 'Assertion référencée — provenance conservée, véracité non vérifiée',
-  hypothesis: 'Hypothèse — assertion sans référence exploitable, exclue des chemins',
-  deprecated: 'Assertion obsolète — exclue des chemins',
+  assertion: 'Source disponible',
+  hypothesis: 'Sans source',
+  deprecated: 'Information ancienne',
 };
 const discoveryLabels = {
-  NEW_ENTITY: 'Nouvelle entité', NEW_RELATION: 'Nouvelle relation documentée', NEW_PATH: 'Nouveau chemin',
-  NEW_EVIDENCE: 'Nouvelle preuve', IDENTITY_RECONCILED: 'Identité réconciliée',
+  NEW_ENTITY: 'Nouvel élément', NEW_RELATION: 'Nouveau lien', NEW_PATH: 'Nouveau parcours',
+  NEW_EVIDENCE: 'Nouvelle source', IDENTITY_RECONCILED: 'Identité reconnue',
   HYPOTHESIS: 'Hypothèse · exclue des chemins', CONTRADICTION: 'Donnée contradictoire',
   INCOMPARABLE: 'Incomparable',
 };
@@ -200,8 +200,8 @@ function edgeDates(edge) {
   return dates.join(' · ') || 'Date de relation inconnue';
 }
 function evidenceBadge(edge) {
-  if (edge.evidence === 'referenced') return badge('shield', 'Référence déclarée', 'ok');
-  return badge('alert', 'Référence indisponible', 'warn');
+  if (edge.evidence === 'referenced') return badge('shield', 'Source', 'ok');
+  return badge('alert', 'Sans source', 'warn');
 }
 let statusTimer = null;
 function status(message, retry = null) {
@@ -237,17 +237,18 @@ function cancelBiography() {
 /* ==================== CONSTELLATION ==================== */
 const view = new NetworkView($('graph'), {
   onSelect: id => openNode(id),
+  onPlay: id => playVideosFor(id),
   onEdge: edge => showEdge(edge),
   onHover: (record, x, y) => {
     $('tooltip').hidden = !record;
     if (record) {
-      $('tooltip').textContent = `${record.label}${record.property ? ` · ${evidenceLabels[record.evidence]}` : ''}`;
+      $('tooltip').textContent = `${record.label}`;
       $('tooltip').style.left = `${Math.min(x + 15, innerWidth - 270)}px`;
       $('tooltip').style.top = `${Math.min(y + 15, innerHeight - 80)}px`;
     }
   },
   onUnavailable: () => {
-    status('Le rendu 3D est indisponible. Toutes les identités et relations restent accessibles dans la liste.');
+    status('L’affichage 3D n’est pas disponible. La liste accessible montre les mêmes informations.');
     queueMicrotask(() => openSubview('list', SUB_TITLES.list));
   },
 });
@@ -271,6 +272,8 @@ function renderLegend() {
 function renderGraph() {
   syncScene();
   view.setData(state.graph, visibleEdges());
+  refreshVideoBadges();
+  schedulePrefetch();
   renderLegend();
 }
 
@@ -335,7 +338,7 @@ async function runSearch(slot, { more = false } = {}) {
   if (more) {
     results.loadingMore = true;
   } else {
-    Object.assign(results, { open: true, slot, term, phase: 'loading', items: [], next: null, language: 'fr', loadingMore: false, message: 'Recherche dans Wikidata…' });
+    Object.assign(results, { open: true, slot, term, phase: 'loading', items: [], next: null, language: 'fr', loadingMore: false, message: 'Recherche en cours…' });
   }
   render();
   try {
@@ -364,7 +367,7 @@ function resultRow(entity, slot) {
   const main = el('span', 'row-main');
   main.append(text('span', entity.label, 'row-title'));
   const kind = el('span', `row-kind type-${entity.type || 'unknown'}`);
-  kind.append(iconNode(typeIconName(entity.type)), text('span', `${typeLabels[entity.type] || typeLabels.unknown} · ${entity.id}`));
+  kind.append(iconNode(typeIconName(entity.type)), text('span', typeLabels[entity.type] || typeLabels.unknown));
   main.append(kind);
   if (entity.description) main.append(text('span', entity.description, 'row-sub'));
   row.append(main, iconNode('chevron', 'ico row-go'));
@@ -398,22 +401,22 @@ function renderResults() {
     return;
   }
   hint.textContent = slot === 'b'
-    ? 'Seules les personnes sont proposées. Choisissez la personne exacte.'
-    : 'Choisissez l’identité exacte ; un nom seul ne suffit pas.';
+    ? 'Seules les personnes sont proposées. Touchez la bonne.'
+    : 'Touchez la personne que vous cherchez.';
   for (const entity of items) list.append(resultRow(entity, slot));
   if (next) {
     const more = button(loadingMore ? 'Chargement…' : 'Voir plus de résultats', () => runSearch(slot, { more: true }), 'pill wide more-results');
     more.disabled = loadingMore;
     list.append(more);
   }
-  $('search-live').textContent = `${items.length} résultat${items.length > 1 ? 's' : ''}${next ? ' affichés' : ''}. Choisissez l’identité exacte.`;
+  $('search-live').textContent = `${items.length} résultat${items.length > 1 ? 's' : ''}${next ? ' affichés' : ''}. Touchez la personne que vous cherchez.`;
 }
 
 function chipNode(slot, entity) {
   const wrap = el('div', 'chip');
   wrap.append(avatarNode(entity, 'sm'));
   const main = el('div', 'chip-main');
-  const role = slot === 'b' ? 'Personne B' : state.b ? 'Personne A' : 'Personne explorée';
+  const role = slot === 'b' ? 'Personne B' : state.b ? 'Personne A' : 'Personne';
   main.append(text('span', entity.label, 'chip-name'), text('span', role, 'chip-role'));
   const remove = el('button', 'chip-remove');
   remove.type = 'button';
@@ -467,7 +470,7 @@ function chooseSecond(entity) {
   renderGraph();
   ensureSheetOpen();
   render();
-  status(`${state.b.label} est ajoutée. Cherchez maintenant un lien documenté.`);
+  status(`${state.b.label} est ajoutée. Cherchez maintenant le lien entre les deux.`);
 }
 
 function clearRelationState() {
@@ -538,7 +541,7 @@ async function selectRealIdentity(id, seed = null) {
   renderGraph();
   ensureSheetOpen();
   render();
-  status('Consultation des relations et de leurs références…');
+  status('Chargement des liens…');
   try {
     await expandEntity(state.graph, id, { signal: work.signal });
     if (!current(work)) return;
@@ -547,7 +550,7 @@ async function selectRealIdentity(id, seed = null) {
     renderGraph();
     view.focus(id);
     render();
-    status(`${state.graph.nodes.size} entités · ${state.graph.edges.size} relations documentées${state.graph.partial ? ' · réseau partiel : certaines sources sont indisponibles' : ''}${state.graph.capped ? ' · limite du graphe atteinte' : ''}`,
+    status(`${state.graph.nodes.size} éléments · ${state.graph.edges.size} liens${state.graph.partial ? ' · certaines informations manquent' : ''}${state.graph.capped ? ' · limite du graphe atteinte' : ''}`,
       state.graph.partial ? () => selectRealIdentity(id, seed) : null);
   } catch (error) {
     if (current(work)) {
@@ -750,8 +753,8 @@ function renderSavoir(entity) {
   const relationPill = text('span', found.relation, 'savoir-relation');
   chain.append(savoirNode(subject), relationPill, savoirNode(object));
   const foot = el('div', 'savoir-foot');
-  foot.append(text('span', 'Relation documentée dans les données consultées.', 'fine-print'));
-  foot.append(link(found.source.label === 'Référence Wikidata' ? 'Voir la référence' : 'Voir la source', found.source.url, 'text-link'));
+  foot.append(text('span', 'Information issue de Wikidata.', 'fine-print'));
+  foot.append(link('Voir la source', found.source.url, 'text-link'));
   card.append(head, chain, foot);
   box.append(card);
 }
@@ -768,10 +771,19 @@ function renderVideoRail(entity) {
   if (!cached) {
     rail.hidden = true;
     rail.replaceChildren();
+    rail.dataset.for = '';
     loadVideos(entity);
     return;
   }
-  drawVideoRail(rail, cached);
+  // Redessiné seulement quand la personne change : un lecteur déjà lancé n’est pas effacé par un rafraîchissement.
+  if (rail.dataset.for !== entity.id) {
+    drawVideoRail(rail, cached);
+    rail.dataset.for = entity.id;
+  }
+  if (cached.length && ui.pendingPlay === entity.id) {
+    ui.pendingPlay = null;
+    requestAnimationFrame(() => playFirstVideo());
+  }
 }
 
 async function loadVideos(entity) {
@@ -789,7 +801,72 @@ async function loadVideos(entity) {
   if (videoWork?.controller !== controller) return;
   videoWork = null;
   videoCache.set(entity.id, items);
+  refreshVideoBadges();
+  refreshVideoPill(entity);
   if (identityEntity()?.id === entity.id) renderVideoRail(entity);
+}
+
+// Lecture : le bouton près du portrait et celui des étiquettes ouvrent la même liste de vidéos.
+function playFirstVideo() {
+  const rail = $('video-rail');
+  if (rail.hidden) return;
+  if (ui.railCollapsed) {
+    ui.railCollapsed = false;
+    rail.classList.remove('is-collapsed');
+    rail.querySelector('.rail-head')?.setAttribute('aria-expanded', 'true');
+  }
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  rail.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' });
+  rail.querySelector('.rail-thumb')?.click();
+}
+
+function videoPill(count) {
+  const pill = button(count > 1 ? `Voir les ${count} vidéos` : 'Voir la vidéo', playFirstVideo, 'pill primary video-pill');
+  pill.prepend(iconNode('play', 'ico'));
+  return pill;
+}
+
+function refreshVideoPill(entity) {
+  document.querySelector('#identity-hero .video-pill')?.remove();
+  const items = videoCache.get(entity.id) || [];
+  const body = document.querySelector('#identity-hero .identity-text');
+  if (items.length && body && identityEntity()?.id === entity.id) body.append(videoPill(items.length));
+}
+
+function playVideosFor(id) {
+  if (state.a?.id === id) { playFirstVideo(); return; }
+  ui.pendingPlay = id;
+  openNode(id);
+}
+
+const prefetchState = { timer: null, token: 0 };
+function videoIds() {
+  return new Set([...videoCache].filter(([, items]) => items.length).map(([id]) => id));
+}
+function refreshVideoBadges() {
+  view.setVideoIds(videoIds());
+}
+function schedulePrefetch() {
+  clearTimeout(prefetchState.timer);
+  prefetchState.timer = setTimeout(prefetchVideos, 800);
+}
+// Vérifie, pour les personnes voisines (8 au plus), si des vidéos existent : le bouton lecture apparaît sur leur étiquette.
+async function prefetchVideos() {
+  const token = ++prefetchState.token;
+  const focusId = state.a?.id;
+  const people = [...state.graph.nodes.values()]
+    .filter(entity => entity.type === 'person' && entity.id !== focusId && entity.label && entity.label !== entity.id && !videoCache.has(entity.id))
+    .slice(0, 8);
+  for (const entity of people) {
+    if (token !== prefetchState.token) return;
+    let items = youtubeItems(youtubeIdsFromClaims(entity.raw?.claims), entity.label);
+    try {
+      items = [...items, ...await fetchCommonsVideos(entity.label)];
+    } catch { /* sans vidéo : l’étiquette reste sans bouton */ }
+    if (token !== prefetchState.token) return;
+    videoCache.set(entity.id, items);
+    refreshVideoBadges();
+  }
 }
 
 function drawVideoRail(rail, items) {
@@ -870,7 +947,7 @@ function identityHero(entity) {
   const card = el('section', 'identity-card');
   card.style.setProperty('--t', `var(--t-${entity.type || 'unknown'})`);
   const body = el('div', 'identity-text');
-  body.append(text('p', `${typeLabels[entity.type] || typeLabels.unknown} · ${entity.id}`, 'kicker'));
+  body.append(text('p', typeLabels[entity.type] || typeLabels.unknown, 'kicker'));
   body.append(text('h2', entity.label, 'identity-name'));
   const chips = el('div', 'chip-row');
   const dates = lifeDates(entity);
@@ -878,6 +955,8 @@ function identityHero(entity) {
   if (entity.typeBasis === 'relationship') chips.append(chipInfo('info', 'Catégorie suggérée'));
   if (chips.childNodes.length) body.append(chips);
   if (entity.description) body.append(text('p', entity.description, 'identity-desc'));
+  const videoCount = (videoCache.get(entity.id) || []).length;
+  if (videoCount) body.append(videoPill(videoCount));
   card.append(avatarNode(entity, 'xl'), body);
   return card;
 }
@@ -952,10 +1031,10 @@ function renderIdentityPanel() {
 function loadingCard(entity) {
   const card = el('section', 'card empty');
   if (ui.loadingId === entity.id) {
-    card.append(iconNode('spinner', 'ico spin'), text('p', 'Consultation des relations et de leurs références…', 'body-text'));
+    card.append(iconNode('spinner', 'ico spin'), text('p', 'Chargement des liens…', 'body-text'));
   } else {
-    card.append(text('p', 'Les relations de cette identité ne sont pas encore chargées.', 'body-text'));
-    card.append(iconButton('Charger les relations', 'reset', () => ensureExpanded(entity.id), 'pill primary'));
+    card.append(text('p', 'Les liens ne sont pas encore chargés.', 'body-text'));
+    card.append(iconButton('Voir les liens', 'reset', () => ensureExpanded(entity.id), 'pill primary'));
   }
   return card;
 }
@@ -963,7 +1042,7 @@ function loadingCard(entity) {
 function renderLinks(panel, entity) {
   const edges = visibleEdges().filter(edge => edge.from === entity.id || edge.to === entity.id);
   const filtered = state.period.from !== null || state.period.to !== null;
-  panel.append(sectionHead('Liens documentés', String(edges.length)));
+  panel.append(sectionHead('Liens', String(edges.length)));
   if (!edges.length) {
     panel.append(emptyCard(
       filtered ? 'Aucun lien dans la période choisie.' : 'Aucun lien consulté pour cette identité.',
@@ -1016,7 +1095,7 @@ function renderChronology(panel, entity) {
   const all = buildTimeline(entity.id, [...state.graph.edges.values()], state.graph.nodes);
   const visible = new Set(visibleEdges().map(edge => edge.id));
   panel.append(sectionHead('Repères dans le temps', String(all.dated.length)));
-  panel.append(text('p', 'Seules les dates des relations servent ici : début, fin ou date ponctuelle. Une date de publication ou de biographie ne date jamais une relation.', 'fine-print'));
+  panel.append(text('p', 'Les dates viennent des liens. Une date absente n’est pas devinée.', 'fine-print'));
   if (state.timelineStep) panel.append(button('Effacer le repère sélectionné', () => clearTimelineStep({ announce: true }), 'text-button'));
   if (!all.dated.length) {
     panel.append(emptyCard('Aucune relation datée pour cette identité.'));
@@ -1029,7 +1108,7 @@ function renderChronology(panel, entity) {
     const details = el('details', 'disclosure');
     details.open = all.undated.some(step => step.id === state.timelineStep);
     details.append(text('summary', `Sans date connue · ${all.undated.length}`));
-    details.append(text('p', 'Ces relations restent consultables ; aucune date n’est déduite.', 'fine-print'));
+    details.append(text('p', 'Ces liens restent visibles. Aucune date n’est devinée.', 'fine-print'));
     const list = el('ul', 'timeline plain');
     for (const step of all.undated) list.append(timelineItem(step, entity, visible.has(step.id), { undated: true }));
     details.append(list);
@@ -1058,7 +1137,7 @@ function clearTimelineStep({ render: shouldRender = true, announce = false } = {
 
 function renderAbout(panel, entity) {
   panel.append(sectionHead('Présentation'));
-  panel.append(text('p', entity.description || 'Description non disponible dans les sources consultées.', 'entity-description'));
+  panel.append(text('p', entity.description || 'Pas de description disponible.', 'entity-description'));
   const facts = el('div', 'chip-row');
   if (entity.born) facts.append(chipInfo('calendar', `Naissance : ${entity.born.display}`));
   if (entity.died) facts.append(chipInfo('calendar', `Décès : ${entity.died.display}`));
@@ -1099,11 +1178,10 @@ function renderAbout(panel, entity) {
 
 function sourcesCard(entity) {
   const card = el('section', 'card');
-  card.append(text('h3', 'Sources et identifiants', 'card-title'));
-  card.append(text('p', 'Les références documentent la provenance des assertions, pas leur véracité. RELIA ne vérifie pas automatiquement les faits dans les documents externes.', 'fine-print'));
-  card.append(link('Identité et historique Wikidata', `https://www.wikidata.org/wiki/${entity.id}`));
-  if (entity.wiki) card.append(link(`Article Wikipédia (${entity.wikiLang}) · sitelink exact`, entity.wiki));
-  if (entity.bnfIdentifier) card.append(text('p', `Identifiant d’autorité BnF porté par Wikidata (P268) : ${entity.bnfIdentifier}`, 'fine-print'));
+  card.append(text('h3', 'Sources', 'card-title'));
+  card.append(text('p', 'Ces liens indiquent où l’information a été trouvée. Ils ne prouvent pas, à eux seuls, qu’elle est vraie.', 'fine-print'));
+  card.append(link('Voir la page Wikidata', `https://www.wikidata.org/wiki/${entity.id}`));
+  if (entity.wiki) card.append(link('Lire l’article sur Wikipédia', entity.wiki));
   const edges = visibleEdges().filter(edge => edge.from === entity.id || edge.to === entity.id);
   if (edges.length) {
     card.append(text('p', 'Sources des liens visibles', 'group-title'));
@@ -1140,46 +1218,40 @@ async function loadBiography(entity, container) {
   const signal = biographyController.signal, version = biographyVersion;
   const heading = `${entity.type === 'person' ? 'Extrait biographique' : 'Présentation encyclopédique'} · Wikipédia (${entity.wikiLang})`;
   const box = el('section', 'stack');
-  box.append(text('h3', heading, 'card-title'), text('p', 'Chargement depuis le sitelink exact de cette identité…', 'fine-print'));
+  box.append(text('h3', heading, 'card-title'), text('p', 'Chargement de la présentation…', 'fine-print'));
   container.append(box);
   try {
     const summary = await getWikipediaSummary(entity, { signal });
     if (signal.aborted || version !== biographyVersion) return;
     box.replaceChildren(text('h3', heading, 'card-title'));
     if (!summary) {
-      box.append(text('p', 'Aucun extrait disponible pour le sitelink exact. La description Wikidata est conservée.', 'fine-print'));
+      box.append(text('p', 'Pas de présentation disponible pour le moment.', 'fine-print'));
       return;
     }
     box.append(
       text('p', summary.text, 'body-text'),
       link(`${summary.title} · Source Wikipédia (${summary.language})`, summary.url),
-      text('p', `Identité liée par le sitelink Wikidata, sans recherche par nom. Consulté : ${new Date(summary.retrievedAt).toLocaleString('fr-FR')}. Texte encyclopédique non contrôlé automatiquement par RELIA.`, 'fine-print'),
+      text('p', 'Texte issu de Wikipédia.', 'fine-print'),
     );
   } catch {
     if (!signal.aborted && version === biographyVersion) {
-      box.replaceChildren(text('h3', heading, 'card-title'), text('p', 'Extrait indisponible. La description Wikidata est conservée ; aucune autre identité n’est recherchée.', 'fine-print'));
+      box.replaceChildren(text('h3', heading, 'card-title'), text('p', 'Présentation indisponible pour le moment.', 'fine-print'));
     }
   }
 }
 
 function renderBnfEnrichment(box, entity) {
-  box.replaceChildren(text('h3', 'Notice d’autorité · BnF', 'card-title'));
+  box.replaceChildren(text('h3', 'Bibliothèque nationale (BnF)', 'card-title'));
   if (entity.bnfStatus === 'loading') {
-    box.append(text('p', 'Vérification d’un lien documentaire explicite avec data.bnf.fr…', 'fine-print'));
+    box.append(text('p', 'Recherche en cours…', 'fine-print'));
   } else if (entity.bnfStatus === 'unavailable') {
-    box.append(
-      text('p', 'Le service SPARQL BnF est indisponible. Les informations Wikidata restent inchangées ; aucun rapprochement par nom n’est tenté.', 'fine-print'),
-      button('Réessayer la consultation BnF', () => { entity.bnfStatus = null; loadBnfDetails(entity, box.parentElement); }, 'pill small'),
-    );
+    box.append(text('p', 'Service indisponible pour le moment.', 'fine-print'), button('Réessayer', () => { entity.bnfStatus = null; loadBnfDetails(entity, box.parentElement); }, 'pill small'));
   } else if (!entity.bnfEnrichment) {
-    box.append(text('p', 'Aucune notice liée par owl:sameAs n’a été retournée pour cette identité Wikidata. Cela ne prouve pas l’absence d’une notice BnF ; aucune recherche par nom n’est effectuée.', 'fine-print'));
+    box.append(text('p', 'Aucune notice trouvée pour cette personne.', 'fine-print'));
   } else {
     const record = entity.bnfEnrichment;
-    box.append(link('Consulter la notice BnF', record.recordUrl));
-    const labels = Object.entries(record.labels).flatMap(([language, values]) => values.map(value => `${value} (${language})`));
-    if (labels.length) box.append(text('p', `Libellés de la notice : ${labels.join(' · ')}`, 'fine-print'));
-    box.append(text('p', `Alignement explicite owl:sameAs avec ${entity.id} · ${record.attribution} · récupéré le ${new Date(record.retrievedAt).toLocaleString('fr-FR')}. Enrichissement d’identité uniquement, exclu des chemins.`, 'fine-print'));
-    box.append(link(`${record.license} · conditions de réutilisation BnF`, record.licenseUrl));
+    box.append(link('Voir la notice à la BnF', record.recordUrl));
+    box.append(link('Conditions de réutilisation', record.licenseUrl));
   }
 }
 
@@ -1224,13 +1296,13 @@ function renderRelation() {
 
 function renderRelationCall(body) {
   const card = el('section', 'card callout');
-  card.append(text('h3', 'Chercher un lien documenté', 'card-title'));
-  card.append(text('p', 'RELIA suit les relations documentées autour des deux personnes, dans les deux sens, par niveaux et dans des limites affichées.', 'body-text'));
+  card.append(text('h3', 'Chercher le lien', 'card-title'));
+  card.append(text('p', 'RELIA cherche si les deux personnes sont reliées par des liens avec source.', 'body-text'));
   if (state.period.from !== null || state.period.to !== null) card.append(text('p', `Période appliquée : ${periodLabel()}.`, 'fine-print'));
-  card.append(iconButton('Chercher un lien documenté', 'link', searchPath, 'btn primary'));
+  card.append(iconButton('Chercher le lien', 'link', searchPath, 'btn primary'));
   const details = el('details', 'disclosure');
   details.append(text('summary', 'Comment RELIA cherche ?'));
-  details.append(text('p', 'Chaque relation affiche sa propre référence. La recherche est bornée : au plus 100 entités, 180 relations, 12 explorations et 40 requêtes. Un résultat négatif signifie seulement « non trouvé dans les données consultées ».', 'fine-print'));
+  details.append(text('p', 'Chaque lien affiche sa source. La recherche s’arrête après un nombre limité d’étapes.', 'fine-print'));
   card.append(details);
   body.append(card);
 }
@@ -1241,7 +1313,7 @@ function renderRelationLoading(body) {
   head.append(iconNode('spinner', 'ico spin'), text('h3', 'Recherche du lien…', 'card-title'));
   const progress = text('p', state.relation.progress || 'Préparation de la recherche…', 'fine-print');
   progress.id = 'relation-progress';
-  card.append(head, progress, text('p', 'La recherche suit les relations dans les deux sens, par niveaux, dans les limites affichées.', 'fine-print'));
+  card.append(head, progress, text('p', 'Recherche en cours. Merci de patienter.', 'fine-print'));
   card.append(iconButton('Annuler la recherche', 'close', cancelSearchPath, 'btn gray'));
   body.append(card);
 }
@@ -1250,9 +1322,6 @@ function scopeDetails(result) {
   const details = el('details', 'disclosure');
   details.append(text('summary', 'Ce que la recherche a couvert'));
   const eligibleEdges = [...state.graph.edges.values()].filter(edge => eligible(edge) && inPeriod(edge, state.period)).length;
-  details.append(text('p', `${state.graph.nodes.size} entités · ${state.graph.edges.size} relations consultées, dont ${eligibleEdges} utilisables pour les chemins.`, 'fine-print'));
-  if (result.expansions !== undefined) details.append(text('p', `${result.expansions} explorations · ${result.queries} requêtes · jusqu’à ${LIMITS.depth} niveaux par personne.`, 'fine-print'));
-  details.append(text('p', `Plafonds : ${LIMITS.nodes} entités, ${LIMITS.edges} relations, ${LIMITS.expansions} explorations et ${LIMITS.queries} requêtes.`, 'fine-print'));
   if (result.incomplete || state.graph.partial) details.append(text('p', 'Certaines sources ou données sont indisponibles : une partie du réseau peut manquer.', 'fine-print'));
   if (result.bounded || state.graph.capped) details.append(text('p', 'Une limite de taille ou de recherche a été atteinte ; d’autres connexions n’ont pas pu être vérifiées.', 'fine-print'));
   return details;
@@ -1275,7 +1344,7 @@ function pathSteps(path) {
       text('span', `${reverse ? 'Lien lu dans le sens inverse' : 'Lien lu dans le sens direct'}${edge.property ? ` · ${edge.property}` : ''}`, 'row-meta'),
     );
     const refs = edge.references?.length || 0;
-    step.append(iconButton(`Source · ${refs} référence${refs > 1 ? 's' : ''}`, 'doc', () => showEdge(edge), 'pill small'));
+    step.append(iconButton('Voir la source', 'doc', () => showEdge(edge), 'pill small'));
     wrap.append(step);
   });
   return wrap;
@@ -1286,14 +1355,14 @@ function renderRelationFound(body, result) {
   const intermediate = Math.max(0, path.nodes.length - 2);
   const card = el('section', 'card');
   const head = el('div', 'result-head');
-  head.append(iconNode('check', 'ico ok'), text('h3', 'Lien documenté trouvé', 'card-title'));
+  head.append(iconNode('check', 'ico ok'), text('h3', 'Lien trouvé', 'card-title'));
   card.append(
     head,
-    text('p', `${path.edges.length} lien${path.edges.length > 1 ? 's' : ''} · ${intermediate} intermédiaire${intermediate > 1 ? 's' : ''} · références de provenance`, 'fine-print'),
+    text('p', `${path.edges.length} lien${path.edges.length > 1 ? 's' : ''} · ${intermediate} intermédiaire${intermediate > 1 ? 's' : ''}`, 'fine-print'),
     pathSteps(path),
   );
   if (path.edges.length) card.append(iconButton('Raconter ce lien', 'play', () => launchPathStory(path), 'btn primary'));
-  card.append(text('p', 'Les références indiquent d’où vient chaque information. Elles ne prouvent pas qu’elle est vraie.', 'caveat'));
+  card.append(text('p', 'La source indique d’où vient l’information. Elle ne prouve pas, à elle seule, que c’est vrai.', 'caveat'));
   if (result.incomplete) card.append(text('p', 'La recherche est incomplète : il peut exister un lien plus court.', 'warn-note'));
   if (result.incomplete || result.bounded) card.append(iconButton('Relancer la recherche', 'reset', searchPath, 'pill'));
   card.append(scopeDetails(result));
@@ -1304,12 +1373,12 @@ function renderRelationNotFound(body, result) {
   const incomplete = Boolean(result.incomplete || result.bounded);
   const card = el('section', 'card');
   const head = el('div', 'result-head');
-  head.append(iconNode(incomplete ? 'alert' : 'info', `ico ${incomplete ? 'warn' : 'neutral'}`), text('h3', incomplete ? 'Recherche incomplète' : 'Aucun lien documenté trouvé', 'card-title'));
+  head.append(iconNode(incomplete ? 'alert' : 'info', `ico ${incomplete ? 'warn' : 'neutral'}`), text('h3', incomplete ? 'Recherche partielle' : 'Aucun lien documenté trouvé', 'card-title'));
   card.append(head);
   if (incomplete) {
     card.append(text('p', 'La recherche bornée s’est arrêtée avant d’avoir tout consulté. Aucun lien n’a été trouvé dans les données déjà consultées.', 'body-text'));
   } else {
-    card.append(text('p', 'Aucun chemin documenté n’a été trouvé dans les données explorées.', 'body-text'));
+    card.append(text('p', 'Aucun lien trouvé pour l’instant.', 'body-text'));
     card.append(text('p', 'Cela ne prouve pas l’absence de relation réelle.', 'caveat'));
   }
   if (incomplete) card.append(iconButton('Relancer la recherche', 'reset', searchPath, 'pill'));
@@ -1345,7 +1414,7 @@ async function searchPath() {
   view.highlightPath(null);
   state.relation = { status: 'loading', result: null, progress: 'Préparation de la recherche…' };
   render();
-  status('Recherche bornée dans les relations avec références…');
+  status('Recherche de liens en cours…');
   try {
     for (const entity of [a, b]) {
       if (!graph.nodes.has(entity.id) && graph.nodes.size < LIMITS.nodes) graph.nodes.set(entity.id, entity);
@@ -1354,7 +1423,7 @@ async function searchPath() {
       signal: work.signal,
       onProgress: progress => {
         if (!current(work)) return;
-        const line = `Consultation des sources · ${progress.expansions}/${LIMITS.expansions} explorations · ${progress.queries}/${LIMITS.queries} requêtes`;
+        const line = 'Recherche en cours…';
         state.relation.progress = line;
         const node = $('relation-progress');
         if (node) node.textContent = line;
@@ -1370,10 +1439,10 @@ async function searchPath() {
     if (result.path) sound.playSuccess();
     setRelationResult(result);
     status(result.path
-      ? 'Lien référencé trouvé dans les données consultées. Consultez chaque relation et ses références.'
+      ? 'Lien trouvé. Vous pouvez voir chaque étape et sa source.'
       : result.incomplete || result.bounded
         ? 'Recherche incomplète ou arrivée à sa limite : aucun lien trouvé dans les données consultées.'
-        : 'Aucun chemin documenté trouvé dans les données consultées.',
+        : 'Aucun lien trouvé pour l’instant.',
     result.incomplete || result.bounded ? searchPath : null);
   } catch (error) {
     if (current(work)) {
@@ -1396,31 +1465,18 @@ function renderSource() {
 function sourceCard(edge) {
   const card = el('article', 'source-card');
   const source = state.graph.nodes.get(edge.from), target = state.graph.nodes.get(edge.to);
-  card.append(text('strong', `${source?.label || edge.from} · ${target?.label || edge.to}`), text('div', `${edge.label}${edge.property ? ` (${edge.property})` : ''}`), text('div', `Classification : ${edge.classification || 'démonstration fictive'}`), text('span', claimStatusLabels[edge.claimStatus] || evidenceLabels[edge.evidence], 'evidence-badge'), text('div', edgeDates(edge)));
-  if (['P19', 'P20', 'P131'].includes(edge.property)) card.append(text('p', 'Relation géographique visible pour le contexte, exclue des chemins professionnels et culturels.', 'fine-print'));
-  card.append(link('Propriété Wikidata', `https://www.wikidata.org/wiki/Property:${edge.property}`));
-  card.append(text('div', `Identifiant d’assertion : ${edge.id}`), text('div', `Rang : ${edge.rank === 'preferred' ? 'préféré' : edge.rank === 'deprecated' ? 'obsolète' : 'normal'}`), text('div', `Consulté par RELIA : ${new Date(edge.retrievedAt).toLocaleString('fr-FR')}`));
-  card.append(link('Consulter l’assertion et ses références', `https://www.wikidata.org/wiki/${edge.from}#${edge.property}`));
-  if (!edge.references.length) card.append(text('p', 'Aucune référence. Assertion non vérifiée, exclue des chemins.', 'warning'));
-  for (const [index, reference] of edge.references.entries()) {
+  card.append(text('strong', `${source?.label || edge.from} · ${target?.label || edge.to}`), text('div', edge.label));
+  if (!edge.references.length) card.append(text('p', 'Pas de source pour ce lien.', 'warning'));
+  edge.references.forEach((reference, index) => {
     const block = el('div', 'stack');
-    block.append(text('h3', `Référence ${index + 1}`), text('div', `Empreinte : ${reference.hash || 'non fournie'}`));
-    reference.urls.forEach(url => block.append(link(url, url)));
-    reference.documents.forEach(id => block.append(link(`Document cité · ${id}`, `https://www.wikidata.org/wiki/${id}`)));
-    if (!reference.usable) block.append(text('p', 'Référence sans URL ni document cité exploitable. Ne suffit pas pour un chemin.', 'warning'));
-    for (const date of reference.published) block.append(text('div', `Publication de la source : ${date.display}`));
-    for (const date of reference.retrieved) block.append(text('div', `Consultation déclarée dans Wikidata : ${date.display}`));
-    if (!reference.published.length) block.append(text('div', 'Date de publication de la source : non renseignée'));
-    const details = el('details');
-    details.append(text('summary', 'Provenance complète de la référence'), text('pre', JSON.stringify(reference.provenance, null, 2)));
-    block.append(details);
+    block.append(text('h3', edge.references.length > 1 ? `Source ${index + 1}` : 'Source'));
+    reference.urls.forEach(url => block.append(link('Ouvrir la source', url)));
+    reference.documents.forEach(id => block.append(link('Voir sur Wikidata', `https://www.wikidata.org/wiki/${id}`)));
+    if (!reference.usable) block.append(text('p', 'Source incomplète : elle ne suffit pas à elle seule.', 'warning'));
+    for (const date of reference.published) block.append(text('div', `Publiée le ${date.display}`));
     card.append(block);
-  }
-  if (Object.keys(edge.qualifiers || {}).length) {
-    const details = el('details');
-    details.append(text('summary', 'Qualificatifs originaux'), text('pre', JSON.stringify(edge.qualifiers, null, 2)));
-    card.append(details);
-  }
+  });
+  card.append(link('Voir ce lien sur Wikidata', `https://www.wikidata.org/wiki/${edge.from}#${edge.property}`));
   return card;
 }
 
@@ -1444,7 +1500,6 @@ function renderMedia() {
 function renderAccessible() {
   const container = $('list-body');
   container.replaceChildren();
-  container.append(text('p', 'Graphe réel consulté · Wikidata. Les références documentent la provenance, pas la véracité.', 'fine-print'));
   if (!state.graph.nodes.size) {
     container.append(text('p', 'Recherchez une identité pour charger son réseau.', 'muted-text'));
     return;
@@ -1457,7 +1512,7 @@ function renderAccessible() {
     const main = el('span', 'row-main');
     main.append(
       text('span', entity.label, 'row-title'),
-      text('span', `${typeLabels[entity.type] || typeLabels.unknown}${entity.typeBasis === 'relationship' ? ' (catégorie suggérée)' : ''} · ${entity.id}`, 'row-sub'),
+      text('span', `${typeLabels[entity.type] || typeLabels.unknown}`, 'row-sub'),
     );
     row.append(avatarNode(entity, 'md'), main, iconNode('chevron', 'ico row-go'));
     row.addEventListener('click', () => openNode(entity.id));
@@ -1465,7 +1520,7 @@ function renderAccessible() {
   }
   container.append(people);
   const edges = visibleEdges();
-  container.append(sectionHead('Relations dans la période', String(edges.length)));
+  container.append(sectionHead('Liens dans la période', String(edges.length)));
   const list = el('div', 'list-group');
   for (const edge of edges) {
     const row = el('button', 'list-row');
@@ -1473,7 +1528,7 @@ function renderAccessible() {
     const main = el('span', 'row-main');
     main.append(
       text('span', `${state.graph.nodes.get(edge.from)?.label || edge.from} · ${edge.label} · ${state.graph.nodes.get(edge.to)?.label || edge.to}`, 'row-title'),
-      text('span', `${edge.classification || 'relation documentée'} · ${claimStatusLabels[edge.claimStatus] || evidenceLabels[edge.evidence]} · ${edgeDates(edge)}`, 'row-sub'),
+      text('span', `${edgeDates(edge)}`, 'row-sub'),
     );
     const glyph = el('span', 'key-glyph');
     glyph.append(iconNode('link'));
@@ -1585,19 +1640,28 @@ function renderSettings() {
   body.replaceChildren();
   body.append(settingsGroup('Affichage', [
     settingRow('Thème', segmented([['light', 'Clair'], ['dark', 'Sombre']], document.body.dataset.theme === 'dark' ? 'dark' : 'light', setTheme, 'Thème'), '', { stacked: true }),
+    settingRow('Texte plus grand', switchControl('Texte plus grand', document.body.dataset.text === 'large', setTextSize), 'Agrandit les textes de toute l’application.'),
   ]));
-  body.append(settingsGroup('Narration', [
-    settingRow('Voix et sons', switchControl('Voix et sons', sound.enabled || voice.enabled, value => { sound.setEnabled(value); voice.setEnabled(value); renderSoundButton(); }), 'Effets sonores et narration vocale des récits.'),
-    settingRow('Rythme de lecture', segmented([['calm', 'Posée'], ['normal', 'Normale']], voice.rateKey, key => voice.setRate(key), 'Rythme de lecture'), 'Posée : plus lente, plus facile à suivre.', { stacked: true }),
+  body.append(settingsGroup('Voix et sons', [
+    settingRow('Voix et sons', switchControl('Voix et sons', sound.enabled || voice.enabled, value => { sound.setEnabled(value); voice.setEnabled(value); renderSoundButton(); }), 'Effets sonores et lecture à voix haute des récits.'),
+    settingRow('Vitesse de lecture', segmented([['calm', 'Posée'], ['normal', 'Normale']], voice.rateKey, key => voice.setRate(key), 'Vitesse de lecture'), 'Posée : plus lente, plus facile à suivre.', { stacked: true }),
     voiceBlock(),
     settingRow('Écouter un extrait', iconButton('Écouter', 'speaker', playSample, 'pill small')),
   ]));
-  body.append(settingsGroup('Explorer', [
-    settingRow('Liste accessible', iconButton('Ouvrir la liste', 'list', () => openSubview('list', SUB_TITLES.list), 'pill small'), 'Les mêmes informations, en texte.'),
-    settingRow('Aide et limites', iconButton('Ouvrir l’aide', 'help', () => openSubview('help', SUB_TITLES.help), 'pill small'), 'Ce que RELIA affiche, et ce qu’il ne prouve pas.'),
-    settingRow('Comparer deux états', iconButton('Ouvrir Discovery', 'compass', () => openSubview('advanced', SUB_TITLES.advanced), 'pill small'), 'Expérimental : instantanés JSON et comparaison déterministe.'),
+  body.append(settingsGroup('Aide', [
+    settingRow('Liste accessible', iconButton('Ouvrir la liste', 'list', () => openSubview('list', SUB_TITLES.list), 'pill small'), 'Les mêmes informations, en texte simple.'),
+    settingRow('Aide', iconButton('Lire l’aide', 'help', () => openSubview('help', SUB_TITLES.help), 'pill small'), 'Comment lire RELIA, en quelques phrases.'),
   ]));
-  body.append(text('p', 'Les préférences et les instantanés Discovery restent stockés sur cet appareil.', 'settings-foot'));
+  const advanced = el('details', 'advanced-details');
+  advanced.append(text('summary', 'Avancé'), settingRow('Comparer des états', iconButton('Ouvrir la comparaison', 'compass', () => openSubview('advanced', SUB_TITLES.advanced), 'pill small'), 'Pour garder des copies d’une recherche et les comparer.'));
+  body.append(advanced);
+  body.append(text('p', 'Vos réglages restent sur cet appareil.', 'settings-foot'));
+}
+
+function setTextSize(on) {
+  document.body.dataset.text = on ? 'large' : 'normal';
+  try { localStorage.setItem('relia-text', on ? 'large' : 'normal'); } catch { /* préférence non conservée */ }
+  renderSettings();
 }
 
 function setTheme(theme) {
@@ -1868,7 +1932,7 @@ function renderDiscovery() {
     const entry = el('section', 'discovery-entry');
     entry.append(text('strong', `${label}${snapshot.origin === 'simulated' ? ' · SIMULÉ' : ' · réel déclaré'}`),
       text('p', `${snapshot.snapshotId} · ${snapshot.identities.join(' · ')}`),
-      text('p', `Sources : ${snapshot.sources.join(', ')} · ${snapshot.nodes.length} entités · ${snapshot.edges.length} assertions · Récupéré : ${snapshot.retrievedAt}`),
+      text('p', `Sources : ${snapshot.sources.join(', ')} · ${snapshot.nodes.length} éléments · ${snapshot.edges.length} liens · Récupéré : ${snapshot.retrievedAt}`),
       text('p', `Collecte ${snapshot.collection.complete ? 'terminée dans le périmètre déclaré' : 'incomplète'} · ${snapshot.collection.expanded.length} identités explorées${snapshot.collection.errors.length ? ` · Erreurs : ${snapshot.collection.errors.join('; ')}` : ''}`));
     if (snapshot.collection.limitations.length) entry.append(text('p', `Limites : ${snapshot.collection.limitations.join(' · ')}`));
     container.append(entry);
@@ -1883,13 +1947,13 @@ function renderDiscovery() {
     const card = el('article', 'discovery-entry');
     card.append(text('strong', `${discoveryLabels[entry.type] || entry.type} · ${entry.id}`),
       text('p', entry.explanation),
-      text('p', `Entités exactes : ${entry.entities.join(' · ') || 'non précisées'}${entry.sources.length ? ` · Sources attribuées : ${entry.sources.join(', ')}` : ' · Adaptateur de provenance non attribué à cette assertion'}`));
+      text('p', `Personnes exactes : ${entry.entities.join(' · ') || 'non précisées'}${entry.sources.length ? ` · Sources attribuées : ${entry.sources.join(', ')}` : ' · Adaptateur de provenance non attribué à cette assertion'}`));
     const relation = entry.details.relation;
     const assertions = entry.details.relations || (relation ? [relation.before, relation.after].filter(Boolean) : entry.path?.edges || []);
     for (const edge of assertions) {
       const from = state.graph.nodes.get(edge.from)?.label || edge.from;
       const to = state.graph.nodes.get(edge.to)?.label || edge.to;
-      card.append(text('p', `${from} · ${edge.label || edge.property || 'relation'} (${edge.property || 'propriété inconnue'}) · ${to} · assertion ${edge.id}`));
+      card.append(text('p', `${from} · ${edge.label || edge.property || 'relation'} (${edge.property || 'type inconnu'}) · ${to} · assertion ${edge.id}`));
     }
     for (const reference of entry.references) {
       reference.urls?.forEach(url => card.append(link(url, url)));
@@ -2118,6 +2182,9 @@ hydrateIcons();
 try {
   if (localStorage.getItem('relia-theme') === 'dark') setTheme('dark');
 } catch { /* thème par défaut */ }
+try {
+  document.body.dataset.text = localStorage.getItem('relia-text') === 'large' ? 'large' : 'normal';
+} catch { /* taille par défaut */ }
 compareDiscovery();
 measureSheet();
 setSnap(sheetSnap);
