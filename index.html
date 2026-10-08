@@ -2,227 +2,207 @@
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#f8fafc" />
-    <meta name="description" content="RELIA explore les relations culturelles documentées dans Wikidata, avec leurs sources, leur chronologie et leurs limites." />
-    <title>RELIA — Tout est relié.</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#f2f2f7" />
+    <meta name="description" content="RELIA montre les relations documentées entre personnes, œuvres, lieux et institutions, avec leurs sources, leurs dates et leurs limites." />
+    <title>RELIA · Tout est relié</title>
   </head>
-  <body data-theme="light">
-    <div id="graph" aria-label="Graphe relationnel interactif"></div>
-    <div class="vignette" aria-hidden="true"></div>
-    <header class="topbar">
-      <a class="brand" href="./" aria-label="RELIA, accueil">
-        RELIA<span></span>
-        <span class="brand-tag">EXPÉDITION DES SAVOIRS</span>
-      </a>
-      <div class="top-actions">
-        <span class="preview-label" id="dataset-label">Aperçu · Démonstration fictive</span>
-        <button id="dataset-switch" class="subtle" type="button">Explorer les données réelles ↗</button>
-        <button id="audio-toggle" class="icon-button audio-toggle" type="button" aria-label="Activer ou couper le son et la voix" title="Activer ou couper le son et la voix">🔊</button>
-        <button id="theme-toggle" class="icon-button theme-toggle" type="button" aria-label="Activer le mode sombre" title="Activer le mode sombre">◐</button>
-        <button id="help-button" class="icon-button" type="button" aria-label="Aide et limites">?</button>
-      </div>
-    </header>
-    <main>
-      <section class="hero" id="hero">
-        <p class="eyebrow"><span class="live-dot"></span> EXPLORATION DES SAVOIRS EN 3D</p>
-        <h1>Tout est <em>relié.</em></h1>
-        <p class="intro">Explorez les liens invisibles entre les personnes,<br class="desktop-break" /> les œuvres et les histoires.</p>
-        <div id="main-search" class="search-component"></div>
-        <div class="examples">
-          <span>Un point de départ ?</span>
-          <button type="button" data-example="Sandrine Sarroche">Sandrine Sarroche ↗</button>
-          <button type="button" data-example="Pierre Lefebvre">Pierre Lefebvre ↗</button>
-        </div>
-        <div class="start-options">
-          <button id="start-real" class="primary" type="button">Explorer les sources réelles <span>↗</span></button>
-          <button id="start-demo" class="subtle" type="button">Voir la démonstration fictive</button>
-        </div>
-        <p class="hero-note">Les données réelles sont sourcées depuis Wikidata. L’aperçu est entièrement fictif.</p>
-      </section>
+  <body class="landing" data-theme="light">
+    <div id="graph" aria-label="Constellation des relations documentées. La liste accessible donne les mêmes informations."></div>
 
-      <section id="workspace" class="workspace glass" hidden>
-        <div class="workspace-heading">
-          <span class="eyebrow" id="workspace-title">EXPLORER</span>
-          <button id="workspace-collapse" class="icon-button" type="button" aria-label="Réduire le panneau">−</button>
-        </div>
-        <div id="explore-section">
-          <p id="explore-intro" class="muted">Choisissez une identité Wikidata pour commencer.</p>
-          <div id="workspace-search" class="search-component"></div>
-          <div id="selected-identity"></div>
-        </div>
-        <div id="connect-section" hidden>
-          <h2>Relier deux personnes</h2>
-          <p class="muted">Deux identités, un chemin documenté.</p>
-          <label class="field-label">PERSONNE DE DÉPART</label>
-          <div id="from-search" class="search-component"></div>
-          <label class="field-label">PERSONNE D’ARRIVÉE</label>
-          <div id="to-search" class="search-component"></div>
-          <div id="connection-identities" class="muted"></div>
-          <button id="find-path" class="primary wide" type="button">Chercher un chemin</button>
-          <button id="cancel-path" class="subtle" type="button" hidden>Annuler la recherche</button>
-          <details class="fine-details">
-            <summary>Comment RELIA cherche un chemin</summary>
-            <p class="fine-print">RELIA cherche le plus court chemin dans le graphe consulté, pas dans tout Wikidata. Seules les relations avec référence exploitable peuvent former un chemin. La référence indique la provenance déclarée, sans vérification automatique du fait dans le document externe.</p>
-            <p class="fine-print">La recherche explore jusqu’à 4 niveaux depuis chaque personne, 12 expansions, 40 requêtes, 100 entités et 180 relations. La recherche entrante peut être indisponible. Un résultat limité ou incomplet ne permet pas de conclure à l’absence d’une relation réelle.</p>
-          </details>
-          <div id="path-result"></div>
-        </div>
-        <div id="time-section" hidden>
-          <h2>Un regard dans le temps</h2>
-          <p class="muted">Le filtre s’applique au graphe et aux chemins.</p>
-          <div class="year-fields">
-            <label>De <input id="year-from" type="number" min="-5000" max="2100" placeholder="1900" /></label>
-            <label>À <input id="year-to" type="number" min="-5000" max="2100" placeholder="2026" /></label>
-          </div>
-          <label class="check-label"><input id="include-undated" type="checkbox" checked /> Inclure les relations sans date connue</label>
-          <button id="apply-time" class="primary wide" type="button">Appliquer la période</button>
-          <button id="clear-time" class="subtle" type="button">Tout le temps</button>
-          <p id="time-status" class="fine-print"></p>
-        </div>
-        <div id="sources-section" hidden>
-          <h2>Les sources, pas les suppositions.</h2>
-          <p class="muted">Sélectionnez un lien pour sa provenance exacte.</p>
-          <div id="source-list"></div>
-        </div>
-        <div id="discovery-section" hidden>
-          <h2>RELIA Discovery</h2>
-          <p class="muted">Comparez des instantanés du même périmètre. Une nouveauté RELIA n’est pas une découverte historique inédite.</p>
-          <p class="fine-print">BnF est un enrichissement d’identité expérimental et ne fournit pas d’arêtes. Un état enrichi exige une source de relations autorisée, une provenance par assertion et des paramètres comparables.</p>
-          <div class="discovery-actions">
-            <button id="capture-before" class="subtle" type="button">Enregistrer le graphe actuel comme état A</button>
-            <button id="capture-after" class="subtle" type="button">Enregistrer le graphe actuel comme état B</button>
-            <label class="fine-print">Importer un instantané JSON pour l’état A<input id="import-before" type="file" accept="application/json,.json" /></label>
-            <label class="fine-print">Importer un instantané JSON pour l’état B<input id="import-after" type="file" accept="application/json,.json" /></label>
-            <button id="export-before" class="subtle" type="button" disabled>Télécharger l’état A</button>
-            <button id="export-after" class="subtle" type="button" disabled>Télécharger l’état B</button>
-            <button id="export-discovery" class="primary wide" type="button">Exporter le registre JSON</button>
-          </div>
-          <div id="discovery-status" class="fine-print" aria-live="polite">Sélectionnez deux identités exactes dans « Relier » puis consultez leur graphe.</div>
-          <div id="discovery-register"></div>
-        </div>
-      </section>
-
-      <aside id="entity-panel" class="entity-panel glass" aria-label="Détails de l’entité" hidden>
-        <button id="close-panel" class="icon-button close" type="button" aria-label="Fermer les détails">×</button>
-        <div id="entity-content"></div>
-      </aside>
-
-      <aside id="timeline-rail" class="timeline-rail glass" aria-label="Chronologie interactive" hidden>
-        <div class="timeline-rail-heading">
-          <div>
-            <p class="eyebrow">REPÈRES DANS LE TEMPS</p>
-            <h2 id="timeline-entity"></h2>
-          </div>
-          <div class="timeline-rail-top-actions">
-            <span id="timeline-count" class="timeline-rail-count"></span>
-            <button id="timeline-play-btn" class="timeline-play-btn" type="button" aria-label="Lancer le récit interactif" title="Lancer le récit interactif">▶ Récit</button>
-          </div>
-        </div>
-        <p id="timeline-rail-note" class="timeline-rail-note"></p>
-        <div class="timeline-rail-scroll" tabindex="0" aria-label="Étapes datées, défilement indépendant">
-          <ol id="timeline-steps" class="timeline-rail-steps"></ol>
-        </div>
-      </aside>
-
-      <!-- Documentary Story Player HUD (Future RELIA PLAY) -->
-      <section id="story-player" class="story-player glass" aria-label="Lecteur de récit interactif" hidden>
-        <div class="story-player-header">
-          <div class="story-player-badge">
-            <span class="story-player-pulse"></span>
-            <span id="story-player-type">RÉCIT DOCUMENTAIRE</span>
-            <div class="waveform" id="story-waveform" aria-hidden="true" title="Audio vocal actif">
-              <span></span><span></span><span></span><span></span>
-            </div>
-          </div>
-          <span id="story-player-counter" class="story-player-counter">Étape 1 sur 1</span>
-          <button id="close-story" class="icon-button close-story" type="button" aria-label="Quitter le récit">×</button>
-        </div>
-        <div class="story-player-progress-bar"><div id="story-player-progress" class="story-player-progress-fill"></div></div>
-        <div class="story-player-body">
-          <div class="story-player-year-badge" id="story-player-year">2021</div>
-          <div class="story-player-info">
-            <h3 id="story-player-title" class="story-player-title">Titre de l'étape</h3>
-            <p id="story-player-desc" class="story-player-desc">Description de la relation et des protagonistes</p>
-          </div>
-        </div>
-        <div class="story-player-controls">
-          <button id="story-prev" class="story-nav-btn" type="button" aria-label="Étape précédente">◀ Précédent</button>
-          <button id="story-play" class="story-play-toggle" type="button" aria-label="Lecture ou pause du récit"><span class="play-icon">▶</span> <span id="story-play-label">Lecture auto</span></button>
-          <button id="story-next" class="story-nav-btn" type="button" aria-label="Étape suivante">Suivant ▶</button>
-          <button id="story-voice-toggle" class="story-voice-btn" type="button" aria-label="Activer ou couper la voix">🔊 Voix</button>
-        </div>
-      </section>
-
-      <!-- Media Lightbox Modal -->
-      <div id="media-lightbox" class="media-lightbox" hidden aria-modal="true" role="dialog" aria-label="Visualiseur d'archive">
-        <div class="media-lightbox-backdrop" id="lightbox-backdrop"></div>
-        <div class="media-lightbox-content glass">
-          <button id="close-lightbox" class="icon-button close" type="button" aria-label="Fermer le visualiseur">×</button>
-          <div class="media-lightbox-frame">
-            <img id="lightbox-image" src="" alt="" />
-          </div>
-          <div class="media-lightbox-details">
-            <h3 id="lightbox-title">Document d'archive</h3>
-            <p id="lightbox-caption" class="fine-print">Crédits, auteur et licence de l'image (Wikimedia Commons)</p>
-            <a id="lightbox-link" href="#" target="_blank" rel="noopener noreferrer" class="primary">Consulter sur Wikimedia Commons ↗</a>
-          </div>
-        </div>
-      </div>
-
-      <section id="help" class="help-panel glass" hidden>
-        <button id="close-help" class="icon-button close" type="button" aria-label="Fermer l’aide">×</button>
-        <p class="eyebrow">LE GRAPHE, EN TOUTE TRANSPARENCE</p>
-        <h2>Explorer n’est pas affirmer.</h2>
-        <p>Les identités, relations et références réelles proviennent de Wikidata. « Documenté — référence Wikidata » décrit la provenance d’une assertion, pas la confirmation de sa véracité. RELIA affiche les références sans contrôle automatisé des faits dans les sources externes. Les assertions sans URL de référence exploitable (P854) ni document cité (P248) sont non vérifiées et exclues des chemins ; « importé de » (P143) seul ne suffit pas.</p>
-        <p>Seules des propriétés professionnelles et culturelles sélectionnées sont explorées. Les relations familiales ou intimes ne font pas partie de l’exploration. Les lieux de naissance, de décès et la localisation administrative sont visibles pour le contexte, mais exclus des chemins. Les liens sont parcourus dans les deux sens. Le réseau consulté est limité à 100 entités et 180 relations ; la recherche de chemin est bornée et ne garantit pas le plus court chemin mondial.</p>
-        <p>Une notice BnF n’est consultée que par lien explicite owl:sameAs avec l’identité Wikidata ; RELIA n’effectue aucune recherche BnF par nom. Les libellés BnF sont un enrichissement d’identité, jamais une relation de chemin. Les portraits ronds proviennent du fichier P18 exact de Wikidata, sont limités en nombre et désactivés en mode reduced motion ou sur les graphes denses. Le lien Commons associé donne accès au crédit, à l’auteur et à la licence du fichier.</p>
-        <p>Le filtre temporel utilise uniquement les dates de la relation : début (P580), fin (P582) ou date ponctuelle (P585). Il ne déduit aucune période des dates biographiques, des carrières ou de la publication des sources. Les années négatives sont conservées ; les dates de précision insuffisante restent inconnues.</p>
-        <p>Glissez pour tourner, pincez ou utilisez la molette pour zoomer. Cliquez une entité pour la consulter et étendre le réseau ; double-cliquez pour centrer. Tous les éléments sont aussi disponibles dans la liste accessible.</p>
-        <p>Cache en mémoire : 5 minutes, 80 réponses maximum pour Wikidata, 40 pour BnF. Les requêtes sont publiques et envoyées à Wikimedia ou data.bnf.fr. L’intégration BnF reste expérimentale tant que la connexion de production et le schéma réel n’ont pas été validés. Les dates manquantes sont indiquées. La démonstration est entièrement fictive et isolée des données réelles.</p>
-      </section>
-
-      <div id="tooltip" class="tooltip" hidden></div>
-      <div id="status" class="status glass" role="status" aria-live="polite" hidden>
-        <span id="status-text"></span>
-        <button id="retry" class="subtle" type="button" hidden>Réessayer</button>
-      </div>
-
-      <section class="accessible-panel glass" id="accessible-panel" hidden>
-        <div class="workspace-heading">
-          <h2>Réseau accessible</h2>
-          <button id="close-accessible" class="icon-button" type="button" aria-label="Fermer la liste">×</button>
-        </div>
-        <div id="accessible-list"></div>
-      </section>
-    </main>
-
-    <footer>
-      <div class="footer-context">
-        <div class="legend" aria-label="Types d’entités">
-          <span><i class="person" aria-hidden="true">●</i>Personnes</span>
-          <span><i class="work" aria-hidden="true">▰</i>Œuvres</span>
-          <span><i class="place" aria-hidden="true">◆</i>Lieux</span>
-          <span><i class="institution" aria-hidden="true">▤</i>Institutions</span>
-          <span><i class="event" aria-hidden="true">✦</i>Événements</span>
-        </div>
-        <div class="context-nav" aria-label="Outils de la constellation">
-          <button data-mode="time" type="button" title="Filtrer par période"><span aria-hidden="true">◷</span>Temps</button>
-          <button data-mode="sources" type="button" title="Consulter les sources"><span aria-hidden="true">▤</span>Sources</button>
-        </div>
-      </div>
-      <nav class="mode-nav glass" aria-label="Modes d’exploration">
-        <button data-mode="explore" class="active" type="button" aria-pressed="true"><span>◈</span>Explorer</button>
-        <button data-mode="connect" type="button" aria-pressed="false"><span>⌁</span>Relier</button>
-        <button data-mode="discovery" type="button" aria-pressed="false"><span>✧</span>Découvrir</button>
+    <header id="topbar" class="topbar">
+      <a class="brand" href="./" aria-label="RELIA, retour à l’accueil"><span class="brand-dot" aria-hidden="true"></span>RELIA</a>
+      <nav class="top-actions" aria-label="Outils">
+        <button id="btn-list" class="round-button" type="button" title="Liste accessible" aria-label="Liste accessible"><span class="ico" data-icon="list"></span></button>
+        <button id="btn-sound" class="round-button" type="button" title="Son et voix" aria-label="Couper le son et la voix" aria-pressed="true"><span class="ico" data-icon="speaker"></span></button>
+        <button id="btn-settings" class="round-button" type="button" title="Réglages" aria-label="Réglages"><span class="ico" data-icon="settings"></span></button>
+        <button id="btn-help" class="round-button" type="button" title="Aide et limites" aria-label="Aide et limites"><span class="ico" data-icon="help"></span></button>
       </nav>
-      <div class="view-tools">
-        <button id="show-accessible" class="icon-button" type="button" aria-label="Afficher la liste accessible">☷</button>
-        <button id="reset-camera" class="icon-button" type="button" aria-label="Réinitialiser la caméra">⤢</button>
-        <span>GLISSEZ POUR EXPLORER</span>
+    </header>
+
+    <div id="legend" class="legend" aria-label="Types d’entités" hidden>
+      <span class="legend-item type-person" title="Personnes"><span class="ico" data-icon="person"></span><span class="legend-text">Personnes</span></span>
+      <span class="legend-item type-work" title="Œuvres"><span class="ico" data-icon="book"></span><span class="legend-text">Œuvres</span></span>
+      <span class="legend-item type-place" title="Lieux"><span class="ico" data-icon="pin"></span><span class="legend-text">Lieux</span></span>
+      <span class="legend-item type-institution" title="Institutions"><span class="ico" data-icon="building"></span><span class="legend-text">Institutions</span></span>
+      <span class="legend-item type-event" title="Événements"><span class="ico" data-icon="sparkle"></span><span class="legend-text">Événements</span></span>
+    </div>
+
+    <div class="scene-tools">
+      <button id="btn-reset" class="round-button" type="button" title="Recentrer la constellation" aria-label="Recentrer la constellation"><span class="ico" data-icon="target"></span></button>
+    </div>
+
+    <aside id="sheet" class="sheet" data-snap="half" aria-label="Recherche et détails">
+      <div id="sheet-head" class="sheet-head">
+        <div class="sheet-grip"><button id="grabber" class="grabber" type="button" aria-label="Agrandir le panneau"></button></div>
+
+
+        <div id="search-block" class="search-block">
+          <p id="dataset-note" class="dataset-note"></p>
+          <div id="slot-a" class="slot">
+            <div id="field-a" class="field">
+              <span class="ico field-icon" data-icon="search"></span>
+              <input id="input-a" class="field-input" type="search" enterkeyhint="search" autocomplete="off" placeholder="Rechercher une personne" aria-label="Rechercher une personne" role="combobox" aria-expanded="false" aria-controls="view-results" aria-autocomplete="list" />
+              <button id="clear-a" class="field-clear" type="button" aria-label="Effacer la recherche" hidden><span class="ico" data-icon="close"></span></button>
+            </div>
+            <div id="chip-a" class="chip-slot" hidden></div>
+          </div>
+          <div id="pair-link" class="pair-link" hidden><span class="ico" data-icon="link"></span></div>
+          <button id="add-second" class="add-second" type="button" hidden><span class="ico" data-icon="userPlus"></span><span>Ajouter une deuxième personne</span></button>
+          <div id="slot-b" class="slot" hidden>
+            <div id="field-b" class="field">
+              <span class="ico field-icon" data-icon="search"></span>
+              <input id="input-b" class="field-input" type="search" enterkeyhint="search" autocomplete="off" placeholder="Avec qui ? Rechercher une personne" aria-label="Rechercher la deuxième personne" role="combobox" aria-expanded="false" aria-controls="view-results" aria-autocomplete="list" />
+              <button id="clear-b" class="field-clear" type="button" aria-label="Annuler la deuxième personne" hidden><span class="ico" data-icon="close"></span></button>
+            </div>
+            <div id="chip-b" class="chip-slot" hidden></div>
+          </div>
+          <p id="search-live" class="sr-only" role="status" aria-live="polite"></p>
+        </div>
+
+        <div id="subhead" class="subhead" hidden>
+          <button id="back" class="back-button" type="button" aria-label="Retour"><span class="ico" data-icon="back"></span><span>Retour</span></button>
+          <h2 id="sheet-title" tabindex="-1"></h2>
+        </div>
       </div>
-    </footer>
-    <div id="network-key" class="network-key" hidden aria-live="polite"></div>
+
+      <div id="sheet-scroll" class="sheet-scroll" tabindex="-1">
+        <section id="view-home" class="view" aria-label="Comment utiliser RELIA">
+          <section id="hero" class="hero" aria-labelledby="hero-title">
+            <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span>Exploration des savoirs</p>
+            <h1 id="hero-title">Tout est <em>relié.</em></h1>
+            <p class="lead">Cherchez une personne pour voir ce qui est documenté autour d’elle. Ajoutez une seconde personne pour savoir si un lien documenté les relie.</p>
+            <div id="examples" class="examples"></div>
+          </section>
+          <div id="home-dataset" class="segmented wide" role="group" aria-label="Source des données">
+            <button type="button" data-dataset="real" aria-pressed="true">Données réelles</button>
+            <button type="button" data-dataset="demo" aria-pressed="false">Démo fictive</button>
+          </div>
+          <h3 class="section-title">Comment ça marche</h3>
+          <ol class="steps">
+            <li><span class="step-icon"><span class="ico" data-icon="search"></span></span><div><strong>Chercher</strong><p>Choisissez l’identité exacte dans la liste. Un nom seul ne suffit pas, car plusieurs personnes peuvent le porter.</p></div></li>
+            <li><span class="step-icon"><span class="ico" data-icon="graph"></span></span><div><strong>Explorer</strong><p>Voyez les œuvres, institutions, lieux et événements liés. Chaque lien affiche sa référence.</p></div></li>
+            <li><span class="step-icon"><span class="ico" data-icon="link"></span></span><div><strong>Relier</strong><p>Ajoutez une seconde personne. RELIA cherche un lien documenté, ou dit clairement ce qu’il n’a pas pu vérifier.</p></div></li>
+          </ol>
+          <div class="note-card"><span class="ico" data-icon="info"></span><p>Les données réelles viennent de Wikidata. Le fond de la constellation est une illustration fictive.</p></div>
+        </section>
+
+        <section id="view-results" class="view" hidden>
+          <p id="results-hint" class="results-hint"></p>
+          <div id="results-list" class="list-group" role="listbox" aria-label="Identités correspondantes"></div>
+          <p id="results-empty" class="empty-text" hidden></p>
+        </section>
+
+        <section id="view-identity" class="view" hidden>
+          <div id="identity-hero"></div>
+          <div id="identity-actions" class="actions-row"></div>
+          <div id="identity-tabs" class="segmented" role="tablist" aria-label="Sections de l’identité">
+            <button type="button" role="tab" id="tab-liens" data-tab="liens" aria-selected="true">Liens</button>
+            <button type="button" role="tab" id="tab-chrono" data-tab="chrono" aria-selected="false">Chronologie</button>
+            <button type="button" role="tab" id="tab-about" data-tab="about" aria-selected="false">À propos</button>
+          </div>
+          <button id="period-open" class="row-button" type="button">
+            <span class="ico" data-icon="clock"></span>
+            <span class="row-button-text"><strong>Période</strong><span id="period-label">Toute la période</span></span>
+            <span class="ico chevron" data-icon="chevron"></span>
+          </button>
+          <div id="identity-panel" class="stack" role="tabpanel" aria-labelledby="tab-liens"></div>
+        </section>
+
+        <section id="view-relation" class="view" hidden>
+          <div id="relation-body" class="stack"></div>
+        </section>
+
+        <section id="view-story" class="view" hidden>
+          <div class="story-progress" aria-hidden="true"><span id="story-progress-fill"></span></div>
+          <div class="story-meta"><span id="story-counter" class="story-counter"></span><span id="story-kind" class="badge accent"></span></div>
+          <article class="story-card" aria-live="polite">
+            <p class="story-year"><span class="ico" data-icon="calendar"></span><span id="story-year"></span></p>
+            <h3 id="story-title" class="story-title"></h3>
+            <p id="story-desc" class="story-desc"></p>
+            <p id="story-date" class="fine-print"></p>
+            <button id="story-source" class="pill small" type="button"><span class="ico" data-icon="doc"></span><span>Voir la source</span></button>
+          </article>
+          <div class="story-controls">
+            <button id="story-prev" class="round-button big" type="button" aria-label="Étape précédente"><span class="ico" data-icon="prev"></span></button>
+            <button id="story-play" class="play-button" type="button"><span id="story-play-icon" class="ico" data-icon="play"></span><span id="story-play-label">Lecture</span></button>
+            <button id="story-next" class="round-button big" type="button" aria-label="Étape suivante"><span class="ico" data-icon="next"></span></button>
+          </div>
+          <div class="story-foot">
+            <button id="story-voice-toggle" class="pill small" type="button"></button>
+            <p class="fine-print">Chaque étape renvoie à sa source. Les dates sont celles des relations, jamais des biographies.</p>
+          </div>
+        </section>
+
+        <section id="view-source" class="view" hidden><div id="source-body" class="stack"></div></section>
+
+        <section id="view-media" class="view" hidden><div id="media-body" class="stack"></div></section>
+
+        <section id="view-time" class="view" hidden>
+          <p class="body-text">Le filtre n’utilise que les dates des relations : début, fin ou date ponctuelle. Il n’invente aucune période à partir des biographies.</p>
+          <div class="year-grid">
+            <label class="field-block"><span>De</span><input id="year-from" class="year-input" type="number" inputmode="numeric" min="-5000" max="2100" placeholder="1900" /></label>
+            <label class="field-block"><span>À</span><input id="year-to" class="year-input" type="number" inputmode="numeric" min="-5000" max="2100" placeholder="2026" /></label>
+          </div>
+          <label class="check-row"><input id="include-undated" type="checkbox" checked /><span>Inclure les relations sans date connue</span></label>
+          <div class="stack">
+            <button id="apply-time" class="btn primary wide" type="button">Appliquer la période</button>
+            <button id="clear-time" class="btn gray wide" type="button">Toute la période</button>
+          </div>
+          <p id="time-status" class="fine-print" aria-live="polite"></p>
+        </section>
+
+        <section id="view-list" class="view" hidden><div id="list-body" class="stack"></div></section>
+
+        <section id="view-settings" class="view" hidden><div id="settings-body"></div></section>
+
+        <section id="view-help" class="view" hidden>
+          <div class="help-intro">
+            <h3 class="help-title">Explorer n’est pas affirmer.</h3>
+            <p class="body-text">RELIA montre ce qui est déclaré dans Wikidata, avec la source de chaque lien. Il ne tranche pas les faits à votre place.</p>
+          </div>
+          <h3 class="section-title">Lire la constellation</h3>
+          <ul class="key-list">
+            <li><span class="key-glyph"><span class="ico" data-icon="person"></span></span><span>Chaque forme indique un type : personne, œuvre, lieu, institution ou événement.</span></li>
+            <li><span class="key-glyph"><span class="ico" data-icon="link"></span></span><span>Un trait est une relation documentée. Touchez-le pour afficher sa source.</span></li>
+            <li><span class="key-glyph key-ab"><b class="role-badge a">A</b><b class="role-badge b">B</b></span><span>Les deux personnes reliées sont en bleu (A) et en rose (B).</span></li>
+            <li><span class="key-glyph key-gold"><span class="ico" data-icon="sparkle"></span></span><span>Le trait doré met en évidence le lien trouvé, quand il existe.</span></li>
+          </ul>
+          <h3 class="section-title">Ce que RELIA ne fait pas</h3>
+          <ul class="bullets">
+            <li>Une référence indique d’où vient une information. Elle ne prouve pas qu’elle est vraie.</li>
+            <li>Un lien non trouvé ne prouve pas l’absence de relation réelle : la recherche est bornée.</li>
+            <li>Les dates viennent uniquement des relations (début, fin, date ponctuelle), jamais des biographies.</li>
+            <li>La narration lit un texte déjà affiché : elle ne saute aucune source.</li>
+          </ul>
+          <h3 class="section-title">Limites de la recherche</h3>
+          <p class="fine-print">Jusqu’à 4 niveaux par personne, 12 explorations, 40 requêtes, 100 entités et 180 relations. Le réseau consulté n’est pas l’ensemble de Wikidata.</p>
+        </section>
+
+        <section id="view-advanced" class="view" hidden>
+          <p class="badge warn"><span class="ico" data-icon="alert"></span><span>Expérimental</span></p>
+          <p class="body-text">Comparez deux instantanés d’un même périmètre. Une nouveauté détectée est une piste à vérifier, pas une découverte confirmée.</p>
+          <p class="fine-print">BnF est un enrichissement d’identité : il n’ajoute aucune relation. Une comparaison exige une source de relations et des paramètres identiques.</p>
+          <div class="stack">
+            <button id="capture-before" class="btn tonal wide" type="button">Enregistrer le graphe actuel comme état A</button>
+            <button id="capture-after" class="btn tonal wide" type="button">Enregistrer le graphe actuel comme état B</button>
+            <label class="file-row"><span>Importer un instantané JSON pour l’état A</span><input id="import-before" type="file" accept="application/json,.json" /></label>
+            <label class="file-row"><span>Importer un instantané JSON pour l’état B</span><input id="import-after" type="file" accept="application/json,.json" /></label>
+            <button id="export-before" class="btn plain wide" type="button" disabled>Télécharger l’état A</button>
+            <button id="export-after" class="btn plain wide" type="button" disabled>Télécharger l’état B</button>
+            <button id="export-discovery" class="btn primary wide" type="button">Exporter le registre JSON</button>
+          </div>
+          <p id="discovery-status" class="fine-print" aria-live="polite">Cherchez un lien entre deux personnes, puis enregistrez un état avant de le comparer.</p>
+          <div id="discovery-register"></div>
+        </section>
+      </div>
+    </aside>
+
+    <div id="status" class="status" role="status" aria-live="polite" hidden>
+      <span id="status-text" class="status-text"></span>
+      <button id="retry" class="text-button" type="button" hidden>Réessayer</button>
+    </div>
+    <div id="tooltip" class="tooltip" hidden></div>
     <script type="module" src="/src/app.js"></script>
   </body>
 </html>

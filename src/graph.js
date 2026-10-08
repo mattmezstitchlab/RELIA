@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { eligible } from './data.js';
+import { ICONS, TYPE_ICON } from './icons.js';
 
 export const COLORS = { person: '#6344d4', work: '#4338ca', place: '#0f766e', institution: '#1d4ed8', event: '#b45309', unknown: '#64748b' };
 const DARK_COLORS = { person: '#ecebf9', work: '#a081ff', place: '#58dfcc', institution: '#719fff', event: '#e7b969', unknown: '#8f899f' };
@@ -155,19 +156,23 @@ export class NetworkView {
         mesh.userData.id = data.id;
         const isDark = typeof document !== 'undefined' && document.body?.dataset.theme === 'dark';
         const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTexture, color, transparent: true, depthWrite: false, blending: isDark ? THREE.AdditiveBlending : THREE.NormalBlending, opacity: isDark ? 0.7 : 0.4 }));
-        halo.scale.setScalar(data.type === 'person' ? 14 : 11);
+        halo.scale.setScalar(data.type === 'person' ? 18 : 14);
         const angle = index * 2.39996;
         const radius = 38 + Math.sqrt(index + 1) * 15;
         const position = new THREE.Vector3(Math.cos(angle) * radius, Math.sin(angle) * radius * 0.64, Math.sin(index * 1.9) * 29);
-        const label = document.createElement('span'); label.textContent = data.label; label.className = 'graph-label'; label.dataset.type = data.type; this.labels.append(label);
+        const label = document.createElement('span'); label.className = 'graph-label'; label.dataset.type = data.type;
+        const glyph = document.createElement('i'); glyph.className = 'graph-label-glyph'; glyph.setAttribute('aria-hidden', 'true');
+        glyph.innerHTML = ICONS[TYPE_ICON[data.type]] || ICONS.dot;
+        const name = document.createElement('span'); name.className = 'graph-label-name'; name.textContent = data.label;
+        label.append(glyph, name); this.labels.append(label);
         this.nodes.set(data.id, { id: data.id, data, mesh, halo, position, velocity: new THREE.Vector3(), label, born: performance.now() + index * 28, avatar: null, avatarURL: null, avatarFailedURL: null });
         this.scene.add(mesh, halo);
       } else { this.nodes.get(data.id).data = data; }
       const node = this.nodes.get(data.id);
       const relevance = Math.min(1.8, 1 + Math.log2(1 + (degree.get(data.id) || 0)) * 0.17);
-      node.mesh.scale.setScalar((data.type === 'person' ? 1.55 : 1.2) * relevance);
+      node.mesh.scale.setScalar((data.type === 'person' ? 2.05 : 1.6) * relevance);
       node.baseScale = node.mesh.scale.x;
-      node.halo.scale.setScalar((data.type === 'person' ? 14 : 11) * relevance);
+      node.halo.scale.setScalar((data.type === 'person' ? 18 : 14) * relevance);
       node.mesh.material.color.set(this.themeColors()[data.type] || this.themeColors().unknown);
       node.halo.material.color.set(this.themeColors()[data.type] || this.themeColors().unknown);
       index++;
@@ -367,8 +372,8 @@ export class NetworkView {
       node.label.classList.toggle('graph-label--selected', node.id === focused);
       node.label.classList.toggle('graph-label--path', highlighted);
       node.label.classList.toggle('graph-label--neighbor', neighbors.has(node.id));
-      const width = Math.min(240, Math.max(62, node.data.label.length * (rootSide >= 0 ? 9.5 : 8) + (rootSide >= 0 ? 42 : 28)));
-      const height = rootSide >= 0 ? 38 : 32;
+      const width = Math.min(260, Math.max(96, node.data.label.length * (rootSide >= 0 ? 10 : 8.6) + (rootSide >= 0 ? 64 : 52)));
+      const height = rootSide >= 0 ? 42 : 36;
       if (screen.z <= 1 && screen.z >= -1 && x > -width && x < this.width && y > -height && y < this.height) {
         labelCandidates.push({
           id: node.id, left: x, top: y, right: x + width, bottom: y + height, x, y,
