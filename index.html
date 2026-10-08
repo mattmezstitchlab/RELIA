@@ -18,6 +18,7 @@
       <div class="top-actions">
         <span class="preview-label" id="dataset-label">Aperçu · Démonstration fictive</span>
         <button id="dataset-switch" class="subtle" type="button">Explorer les données réelles ↗</button>
+        <button id="audio-toggle" class="icon-button audio-toggle" type="button" aria-label="Activer ou couper le son et la voix" title="Activer ou couper le son et la voix">🔊</button>
         <button id="theme-toggle" class="icon-button theme-toggle" type="button" aria-label="Activer le mode sombre" title="Activer le mode sombre">◐</button>
         <button id="help-button" class="icon-button" type="button" aria-label="Aide et limites">?</button>
       </div>
@@ -127,7 +128,13 @@
       <!-- Documentary Story Player HUD (Future RELIA PLAY) -->
       <section id="story-player" class="story-player glass" aria-label="Lecteur de récit interactif" hidden>
         <div class="story-player-header">
-          <div class="story-player-badge"><span class="story-player-pulse"></span> <span id="story-player-type">RÉCIT DOCUMENTAIRE</span></div>
+          <div class="story-player-badge">
+            <span class="story-player-pulse"></span>
+            <span id="story-player-type">RÉCIT DOCUMENTAIRE</span>
+            <div class="waveform" id="story-waveform" aria-hidden="true" title="Audio vocal actif">
+              <span></span><span></span><span></span><span></span>
+            </div>
+          </div>
           <span id="story-player-counter" class="story-player-counter">Étape 1 sur 1</span>
           <button id="close-story" class="icon-button close-story" type="button" aria-label="Quitter le récit">×</button>
         </div>
@@ -143,6 +150,7 @@
           <button id="story-prev" class="story-nav-btn" type="button" aria-label="Étape précédente">◀ Précédent</button>
           <button id="story-play" class="story-play-toggle" type="button" aria-label="Lecture ou pause du récit"><span class="play-icon">▶</span> <span id="story-play-label">Lecture auto</span></button>
           <button id="story-next" class="story-nav-btn" type="button" aria-label="Étape suivante">Suivant ▶</button>
+          <button id="story-voice-toggle" class="story-voice-btn" type="button" aria-label="Activer ou couper la voix">🔊 Voix</button>
         </div>
       </section>
 

@@ -242,6 +242,7 @@ async function selectReal(id) {
   } finally { if (current(work)) state.controller = null; }
 }
 function selectNode(id) {
+  sound.playChime(540);
   if (state.dataset === 'welcome') { chooseDataset('demo'); openMode('explore'); }
   if (state.dataset === 'demo') { state.selected = id; view.setSelected(id); renderEntity(id); view.focus(id); }
   else selectReal(id);
@@ -359,6 +360,174 @@ function loadBnfDetails(entity, container = $('entity-content')) {
   });
 }
 
+/* ==================== AUDIO & VOCAL NARRATION ENGINE ==================== */
+class SoundEngine {
+  constructor() {
+    this.ctx = null;
+    this.enabled = true;
+    try {
+      const stored = localStorage.getItem('relia-sound');
+      if (stored !== null) this.enabled = stored === 'true';
+    } catch {}
+  }
+  init() {
+    if (!this.ctx && typeof AudioContext !== 'undefined') {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) this.ctx = new AudioCtx();
+    }
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {});
+    }
+  }
+  playChime(pitch = 520) {
+    if (!this.enabled) return;
+    try {
+      this.init();
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(pitch, now);
+      osc.frequency.exponentialRampToValueAtTime(pitch * 1.5, now + 0.12);
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.08, now + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.55);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.6);
+    } catch {}
+  }
+  playTick() {
+    if (!this.enabled) return;
+    try {
+      this.init();
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(800, now);
+      gain.gain.setValueAtTime(0.04, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.09);
+    } catch {}
+  }
+  playSuccess() {
+    if (!this.enabled) return;
+    try {
+      this.init();
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+      [440, 554, 659, 880].forEach((freq, idx) => {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now + idx * 0.07);
+        gain.gain.setValueAtTime(0.001, now + idx * 0.07);
+        gain.gain.linearRampToValueAtTime(0.07, now + idx * 0.07 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.07 + 0.6);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now + idx * 0.07);
+        osc.stop(now + idx * 0.07 + 0.65);
+      });
+    } catch {}
+  }
+  toggle() {
+    this.enabled = !this.enabled;
+    try { localStorage.setItem('relia-sound', String(this.enabled)); } catch {}
+    return this.enabled;
+  }
+}
+
+class VoiceNarrator {
+  constructor() {
+    this.enabled = true;
+    this.rate = 1.0;
+    this.speaking = false;
+    this.voice = null;
+    try {
+      const stored = localStorage.getItem('relia-voice');
+      if (stored !== null) this.enabled = stored === 'true';
+    } catch {}
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      this.loadVoices();
+      if (speechSynthesis.onvoiceschanged !== undefined) {
+        speechSynthesis.onvoiceschanged = () => this.loadVoices();
+      }
+    }
+  }
+  loadVoices() {
+    if (!('speechSynthesis' in window)) return;
+    const voices = speechSynthesis.getVoices();
+    this.voice = voices.find(v => v.lang.startsWith('fr') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Premium'))) ||
+                 voices.find(v => v.lang.startsWith('fr')) || null;
+  }
+  speak(textToSpeak, { onEnd = () => {} } = {}) {
+    if (!this.enabled || !('speechSynthesis' in window) || !textToSpeak) {
+      onEnd();
+      return;
+    }
+    this.stop();
+    const cleanText = textToSpeak
+      .replace(/https?:\/\/\S+/g, '')
+      .replace(/[↗◈◷⌁▣]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!cleanText) { onEnd(); return; }
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    if (this.voice) utterance.voice = this.voice;
+    utterance.lang = this.voice?.lang || 'fr-FR';
+    utterance.rate = this.rate;
+    utterance.pitch = 1.0;
+
+    utterance.onstart = () => {
+      this.speaking = true;
+      document.body.classList.add('narrator-speaking');
+    };
+    utterance.onend = () => {
+      this.speaking = false;
+      document.body.classList.remove('narrator-speaking');
+      onEnd();
+    };
+    utterance.onerror = () => {
+      this.speaking = false;
+      document.body.classList.remove('narrator-speaking');
+      onEnd();
+    };
+
+    try {
+      speechSynthesis.speak(utterance);
+    } catch {
+      this.speaking = false;
+      document.body.classList.remove('narrator-speaking');
+      onEnd();
+    }
+  }
+  stop() {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try { speechSynthesis.cancel(); } catch {}
+    }
+    this.speaking = false;
+    document.body.classList.remove('narrator-speaking');
+  }
+  toggle() {
+    this.enabled = !this.enabled;
+    if (!this.enabled) this.stop();
+    try { localStorage.setItem('relia-voice', String(this.enabled)); } catch {}
+    return this.enabled;
+  }
+}
+
+const sound = new SoundEngine();
+const voice = new VoiceNarrator();
+
 /* ==================== INTERACTIVE STORY MODE (PLAY) ==================== */
 const story = {
   active: false,
@@ -463,6 +632,26 @@ function goToStoryStep(index) {
   if (step.otherId) view.focus(step.otherId);
   focusTimelineStep(step.edge.id);
   status(`Récit : ${step.title} (${step.year})`);
+
+  sound.playChime(500 + (story.index % 4) * 45);
+
+  // Vocal audio narration for this step
+  const speechText = `${step.year}. ${step.title}. ${step.desc}`;
+  voice.speak(speechText, {
+    onEnd: () => {
+      if (story.playing) {
+        clearTimeout(story.timer);
+        story.timer = setTimeout(() => {
+          if (story.index < story.steps.length - 1) {
+            nextStoryStep();
+          } else {
+            pauseStory();
+            status('Fin du récit documentaire. Explorez librement la constellation.');
+          }
+        }, 1400);
+      }
+    }
+  });
 }
 
 function nextStoryStep() {
@@ -482,22 +671,28 @@ function playStory() {
   story.playing = true;
   $('story-play-label').textContent = 'Pause';
   $('story-play').querySelector('.play-icon').textContent = '❚❚';
-  clearInterval(story.timer);
-  story.timer = setInterval(() => {
-    if (story.index < story.steps.length - 1) {
-      nextStoryStep();
-    } else {
-      pauseStory();
-    }
-  }, 4500);
+  sound.playTick();
+  // Fallback timer if vocal narration is disabled or unavailable
+  if (!voice.enabled || !('speechSynthesis' in window)) {
+    clearInterval(story.timer);
+    story.timer = setInterval(() => {
+      if (story.index < story.steps.length - 1) {
+        nextStoryStep();
+      } else {
+        pauseStory();
+      }
+    }, 4500);
+  }
 }
 
 function pauseStory() {
   story.playing = false;
   clearInterval(story.timer);
+  clearTimeout(story.timer);
   story.timer = null;
   $('story-play-label').textContent = 'Lecture auto';
   $('story-play').querySelector('.play-icon').textContent = '▶';
+  voice.stop();
 }
 
 function toggleStoryPlay() {
@@ -507,6 +702,7 @@ function toggleStoryPlay() {
 
 function stopStory() {
   pauseStory();
+  voice.stop();
   story.active = false;
   story.steps = [];
   $('story-player').hidden = true;
@@ -563,8 +759,27 @@ function renderEntity(id, { keepScroll = false } = {}) {
   const heroActions = text('div', '', 'editorial-actions');
   const playBtn = button('▶ Lire l’histoire', () => launchEntityStory(entity), 'editorial-play-btn');
   playBtn.setAttribute('title', 'Lancer le parcours documentaire dans la constellation');
+  const speakBtn = button('🔊 Écouter', () => {
+    if (voice.speaking) {
+      voice.stop();
+      speakBtn.textContent = '🔊 Écouter';
+      speakBtn.classList.remove('speaking');
+    } else {
+      sound.playChime(600);
+      const textToSpeak = `${entity.label}. ${entity.description || ''}. ${entity.born ? `Naissance en ${entity.born.display}.` : ''} ${entity.died ? `Décès en ${entity.died.display}.` : ''}`;
+      speakBtn.textContent = '❚❚ Arrêter';
+      speakBtn.classList.add('speaking');
+      voice.speak(textToSpeak, {
+        onEnd: () => {
+          speakBtn.textContent = '🔊 Écouter';
+          speakBtn.classList.remove('speaking');
+        }
+      });
+    }
+  }, 'editorial-audio-btn');
+  speakBtn.setAttribute('title', 'Écouter la présentation vocale de cette identité');
   const centerBtn = button('◎ Centrer', () => view.focus(entity.id), 'editorial-center-btn');
-  heroActions.append(playBtn, centerBtn);
+  heroActions.append(playBtn, speakBtn, centerBtn);
   heroDetails.append(heroActions);
   heroCard.append(heroDetails);
   container.append(heroCard);
@@ -822,7 +1037,9 @@ async function searchPath() {
   const { from, to } = state.pair;
   if (!from || !to) { status('Sélectionnez explicitement deux identités de personnes dans les résultats de recherche.'); return; }
   if (state.dataset === 'demo') {
-    renderPath(shortestPath(state.graph, from.id, to.id, state.period, true)); status('Démonstration fictive : ce chemin n’est pas une relation réelle.'); return;
+    const p = shortestPath(state.graph, from.id, to.id, state.period, true);
+    if (p) sound.playSuccess();
+    renderPath(p); status('Démonstration fictive : ce chemin n’est pas une relation réelle.'); return;
   }
   const work = beginWork(), graph = state.graph;
   $('find-path').disabled = true; $('cancel-path').hidden = false; $('path-result').replaceChildren();
@@ -840,6 +1057,7 @@ async function searchPath() {
       incomplete: result.incomplete, bounded: result.bounded, expansions: result.expansions,
       queries: result.queries, depth: LIMITS.depth, roots: [from.id, to.id],
     };
+    if (result.path) sound.playSuccess();
     renderGraph(); renderPath(result.path, result);
     status(result.path ? 'Chemin référencé trouvé dans le graphe consulté. Consultez chaque assertion et ses références.' :
       result.incomplete || result.bounded ? 'Recherche incomplète ou arrivée à sa limite : aucun chemin trouvé dans les données consultées.' :
@@ -1032,6 +1250,33 @@ $('timeline-play-btn')?.addEventListener('click', () => {
 $('story-prev')?.addEventListener('click', prevStoryStep);
 $('story-next')?.addEventListener('click', nextStoryStep);
 $('story-play')?.addEventListener('click', toggleStoryPlay);
+$('story-voice-toggle')?.addEventListener('click', () => {
+  const active = voice.toggle();
+  updateVoiceUI();
+  status(active ? 'Voix de narration activée pour le récit.' : 'Voix de narration coupée.');
+});
+$('audio-toggle')?.addEventListener('click', () => {
+  const soundActive = sound.toggle();
+  const voiceActive = voice.toggle();
+  const icon = soundActive || voiceActive ? '🔊' : '🔇';
+  $('audio-toggle').textContent = icon;
+  $('audio-toggle').setAttribute('aria-label', soundActive ? 'Couper le son' : 'Activer le son');
+  $('audio-toggle').title = soundActive ? 'Couper le son et la voix' : 'Activer le son et la voix';
+  status(soundActive ? 'Audio et voix de narration activés.' : 'Audio et voix de narration coupés.');
+  updateVoiceUI();
+});
+
+function updateVoiceUI() {
+  if ($('story-voice-toggle')) {
+    $('story-voice-toggle').textContent = voice.enabled ? '🔊 Voix' : '🔇 Voix';
+    $('story-voice-toggle').classList.toggle('active', voice.enabled);
+  }
+  if ($('audio-toggle')) {
+    $('audio-toggle').textContent = sound.enabled || voice.enabled ? '🔊' : '🔇';
+  }
+}
+updateVoiceUI();
+
 $('close-story')?.addEventListener('click', stopStory);
 $('close-lightbox')?.addEventListener('click', closeLightbox);
 $('lightbox-backdrop')?.addEventListener('click', closeLightbox);
