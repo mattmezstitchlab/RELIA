@@ -5,6 +5,11 @@ import { LIMITS, PROPERTIES, bestLabel, demoGraph, emptyGraph, entityFromRaw, ex
 const $ = id => document.getElementById(id);
 const typeLabels = { person: 'Personne', work: 'Œuvre', place: 'Lieu', institution: 'Institution', event: 'Événement', unknown: 'Type non déterminé' };
 const evidenceLabels = { referenced: 'Documenté — référence Wikidata', unverified: 'Assertion non vérifiée · sans référence exploitable', deprecated: 'Assertion obsolète · exclue des chemins', fictional: 'Démonstration fictive · aucune preuve réelle' };
+const claimStatusLabels = {
+  assertion: 'Assertion référencée — provenance conservée, véracité non vérifiée',
+  hypothesis: 'Hypothèse — assertion sans référence exploitable, exclue des chemins',
+  deprecated: 'Assertion obsolète — exclue des chemins',
+};
 const state = {
   dataset: 'welcome', graph: demoGraph(), mode: 'explore', period: { from: null, to: null, undated: true },
   selected: null, pair: { from: null, to: null }, controller: null, version: 0, retry: null, path: null,
@@ -213,7 +218,7 @@ function edgeDates(edge) {
 function sourceCard(edge) {
   const card = text('article', '', 'source-card');
   const source = state.graph.nodes.get(edge.from), target = state.graph.nodes.get(edge.to);
-  card.append(text('strong', `${source?.label || edge.from} → ${target?.label || edge.to}`), text('div', `${edge.label}${edge.property ? ` (${edge.property})` : ''}`), text('span', evidenceLabels[edge.evidence], 'evidence-badge'), text('div', edgeDates(edge)));
+  card.append(text('strong', `${source?.label || edge.from} → ${target?.label || edge.to}`), text('div', `${edge.label}${edge.property ? ` (${edge.property})` : ''}`), text('div', `Classification : ${edge.classification || 'démonstration fictive'}`), text('span', claimStatusLabels[edge.claimStatus] || evidenceLabels[edge.evidence], 'evidence-badge'), text('div', edgeDates(edge)));
   if (['P19', 'P20', 'P131'].includes(edge.property)) card.append(text('p', 'Relation géographique visible pour le contexte, exclue des chemins professionnels et culturels.', 'fine-print'));
   if (edge.fictional) {
     card.append(text('p', 'Démonstration fictive : aucune source, aucun identifiant Wikidata, aucune preuve réelle.')); return card;
@@ -226,7 +231,7 @@ function sourceCard(edge) {
     const block = text('div');
     block.append(text('h3', `Référence ${index + 1}`), text('div', `Empreinte : ${reference.hash || 'non fournie'}`));
     reference.urls.forEach(url => block.append(link(url, url)));
-    reference.documents.forEach(id => block.append(link(`Document cité · ${id} ↗`, `https://www.wikidata.org/wiki/${id}`)));
+    reference.documents.forEach(id => block.append(link(`Document cité · ${id} ↗`, `https://www.wikidata.org/wiki/${id}`));
     if (!reference.usable) block.append(text('p', 'Référence sans URL ni document cité exploitable. Ne suffit pas pour un chemin.', 'warning'));
     for (const date of reference.published) block.append(text('div', `Publication de la source : ${date.display}`));
     for (const date of reference.retrieved) block.append(text('div', `Consultation déclarée dans Wikidata : ${date.display}`));
@@ -329,7 +334,7 @@ function renderAccessible() {
   for (const entity of state.graph.nodes.values()) container.append(button(`${entity.label} · ${typeLabels[entity.type]}${entity.typeBasis === 'relationship' ? ' (catégorie suggérée)' : ''}${entity.fictional ? ' · Fictif' : ` · ${entity.id}`}`, () => { $('accessible-panel').hidden = true; selectNode(entity.id); }, 'neighbor-button'));
   container.append(text('h3', 'Relations dans la période sélectionnée'));
   for (const edge of visibleEdges()) {
-    container.append(button(`${state.graph.nodes.get(edge.from)?.label} → ${edge.label} → ${state.graph.nodes.get(edge.to)?.label} · ${edgeDates(edge)} · ${evidenceLabels[edge.evidence]}`, () => { $('accessible-panel').hidden = true; showEdge(edge); }, 'accessible-edge'));
+    container.append(button(`${state.graph.nodes.get(edge.from)?.label} → ${edge.label} → ${state.graph.nodes.get(edge.to)?.label} · ${edge.classification || 'démonstration fictive'} · ${claimStatusLabels[edge.claimStatus] || evidenceLabels[edge.evidence]} · ${edgeDates(edge)}`, () => { $('accessible-panel').hidden = true; showEdge(edge); }, 'accessible-edge'));
   }
 }
 function renderPath(path, result = {}) {
@@ -343,7 +348,13 @@ function renderPath(path, result = {}) {
     path.nodes.forEach((id, index) => {
       const entity = state.graph.nodes.get(id), edge = path.edges[index];
       const row = text('div', `${index + 1}. ${entity?.label || id}`, 'path-step');
-      if (edge) row.append(text('small', `${edge.label}${edge.property ? ` · ${edge.property}` : ''} · ${edgeDates(edge)}`), button(edge.fictional ? 'Relation fictive ↗' : `${edge.references.length} référence(s) · Consulter ↗`, () => showEdge(edge)));
+      if (edge) {
+        const next = state.graph.nodes.get(path.nodes[index + 1]);
+        const relation = path.directions?.[index] === 'reverse'
+          ? `${entity?.label || id} ← ${edge.label} ← ${next?.label || path.nodes[index + 1]}`
+          : `${entity?.label || id} → ${edge.label} → ${next?.label || path.nodes[index + 1]}`;
+        row.append(text('small', `${relation}${edge.property ? ` · ${edge.property}` : ''}${edge.classification ? ` · ${edge.classification}` : ''} · ${edgeDates(edge)}`), button(edge.fictional ? 'Relation fictive ↗' : `${edge.references.length} référence(s) · Consulter ↗`, () => showEdge(edge)));
+      }
       container.append(row);
     });
     if (result.incomplete) container.append(text('p', 'Ce chemin existe dans le graphe consulté, mais l’exploration est partielle : il peut exister d’autres chemins plus courts.', 'fine-print'));

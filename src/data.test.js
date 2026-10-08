@@ -15,6 +15,9 @@ test('only allowlisted entity relationships are extracted; unsafe and missing re
   assert.equal(edges.length, 4);
   assert.deepEqual(edges.map(eligible), [true, false, false, false]);
   assert.equal(edges[0].references[0].hash, 'reference-hash');
+  assert.equal(edges[0].classification, 'parcours professionnel');
+  assert.deepEqual(edges.map(edge => edge.claimStatus), ['assertion', 'hypothesis', 'hypothesis', 'deprecated']);
+  assert.ok(Object.values(PROPERTIES).every(([, , , classification]) => classification));
 });
 test('professional and cultural allowlist excludes all kinship and intimate properties', () => {
   const excluded = ['P26', 'P40', 'P22', 'P25', 'P451', 'P1038'];
@@ -54,9 +57,11 @@ test('paths are shortest in the consulted graph, traverse inbound links and excl
   add('a', 'Q2', 'Q1', 'referenced', 2002); add('b', 'Q2', 'Q3', 'referenced', 2003); add('c', 'Q1', 'Q3', 'unverified', 2002);
   graph.edges.get('c').label = 'Vérifié — étiquette trompeuse';
   add('d', 'Q3', 'Q4', 'referenced', 2020);
-  assert.deepEqual(shortestPath(graph, 'Q1', 'Q3').nodes, ['Q1', 'Q2', 'Q3']);
+  assert.deepEqual(shortestPath(graph, 'Q1', 'Q3'), {
+    nodes: ['Q1', 'Q2', 'Q3'], edges: [graph.edges.get('a'), graph.edges.get('b')], directions: ['reverse', 'forward'],
+  });
   assert.equal(shortestPath(graph, 'Q1', 'Q4', { from: 2000, to: 2010 }), null);
-  assert.deepEqual(shortestPath(graph, 'Q1', 'Q1'), { nodes: ['Q1'], edges: [] });
+  assert.deepEqual(shortestPath(graph, 'Q1', 'Q1'), { nodes: ['Q1'], edges: [], directions: [] });
   assert.equal(eligible({ evidence: 'referenced', rank: 'normal', references: [] }), false);
 });
 test('shared birthplace, death place and administrative geography cannot form professional paths', () => {
@@ -146,7 +151,7 @@ test('failed incoming expansions remain retryable; success clears partial state 
       if (incomingCalls === 1) throw new Error('temporary outage');
       return { ok: true, json: async () => ({ results: { bindings: [] } }) };
     }
-    return { ok: true, json: async () => ({ entities: { Q987640: { id: 'Q987640', claims: {}, labels: { fr: { value: 'Événement de test' } } } } }) };
+    return { ok: true, json: async () => ({ entities: { Q987640: { id: 'Q987640', claims: {}, labels: { fr: { value: 'Événement de test' } } } }) };
   });
   const graph = emptyGraph(); graph.nodes.set('Q987640', { id: 'Q987640', type: 'event' });
   await expandEntity(graph, 'Q987640');
