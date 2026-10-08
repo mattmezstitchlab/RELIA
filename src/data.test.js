@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { demoGraph, emptyGraph, eligible, inPeriod, referencesFor, relationshipsFromRaw, safeURL, shortestPath, entityFromRaw, dateValue, expandEntity, findRemotePath, getEntities, getWikipediaSummary, searchEntities, LIMITS, PROPERTIES } from './data.js';
+import { emptyGraph, eligible, inPeriod, referencesFor, relationshipsFromRaw, safeURL, shortestPath, entityFromRaw, dateValue, expandEntity, findRemotePath, getEntities, getWikipediaSummary, searchEntities, LIMITS, PROPERTIES } from './data.js';
+import { demoGraph } from './fixtures-demo.js';
+import { searchEntitiesPage } from './data.js';
 
 const claim = (target, references = [], extra = {}) => ({
   id: `Q1$${target}`, rank: 'normal', mainsnak: { datavalue: { value: { id: target } } }, references, ...extra,
@@ -227,4 +229,24 @@ test('missing Wikipedia biography and cancellation never trigger a homonym fallb
   const controller = new AbortController(); controller.abort(new Error('selection changed'));
   await assert.rejects(getWikipediaSummary({ id: 'Q988103', wikiTitle: 'Sitelink annulé de test', wikiLang: 'fr' }, { signal: controller.signal }), /selection changed/);
   assert.equal(calls, 1);
+});
+
+test('searchEntitiesPage forwards the continuation cursor and reports the next page', async () => {
+  const calls = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async url => {
+    calls.push(String(url));
+    return new Response(JSON.stringify({ search: [{ id: 'Q7186', label: 'Marie Curie', description: 'physicienne' }, { id: 'nope', label: 'x' }], 'search-continue': 6 }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const page = await searchEntitiesPage('Marie Curie pagination', { continue: '6', language: 'fr', limit: 20 });
+    assert.deepEqual(page.items.map(item => item.id), ['Q7186']);
+    assert.equal(page.next, '6');
+    assert.equal(page.language, 'fr');
+    assert.match(calls[0], /continue=6/);
+    assert.match(calls[0], /limit=20/);
+    assert.match(calls[0], /wbsearchentities/);
+  } finally {
+    globalThis.fetch = original;
+  }
 });

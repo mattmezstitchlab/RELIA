@@ -7,17 +7,14 @@
     <meta name="description" content="RELIA montre les relations documentées entre personnes, œuvres, lieux et institutions, avec leurs sources, leurs dates et leurs limites." />
     <title>RELIA · Tout est relié</title>
   </head>
-  <body class="landing" data-theme="light">
+  <body data-theme="light">
     <div id="graph" aria-label="Constellation des relations documentées. La liste accessible donne les mêmes informations."></div>
 
     <header id="topbar" class="topbar">
       <a class="brand" href="./" aria-label="RELIA, retour à l’accueil"><span class="brand-dot" aria-hidden="true"></span>RELIA</a>
       <nav class="top-actions" aria-label="Outils">
-        <button id="btn-list" class="round-button" type="button" title="Liste accessible" aria-label="Liste accessible"><span class="ico" data-icon="list"></span></button>
-        <button id="btn-sound" class="round-button" type="button" title="Son et voix" aria-label="Couper le son et la voix" aria-pressed="true"><span class="ico" data-icon="speaker"></span></button>
         <button id="btn-settings" class="round-button" type="button" title="Réglages" aria-label="Réglages"><span class="ico" data-icon="settings"></span></button>
-        <button id="btn-help" class="round-button" type="button" title="Aide et limites" aria-label="Aide et limites"><span class="ico" data-icon="help"></span></button>
-      </nav>
+            </nav>
     </header>
 
     <div id="legend" class="legend" aria-label="Types d’entités" hidden>
@@ -25,7 +22,7 @@
       <span class="legend-item type-work" title="Œuvres"><span class="ico" data-icon="book"></span><span class="legend-text">Œuvres</span></span>
       <span class="legend-item type-place" title="Lieux"><span class="ico" data-icon="pin"></span><span class="legend-text">Lieux</span></span>
       <span class="legend-item type-institution" title="Institutions"><span class="ico" data-icon="building"></span><span class="legend-text">Institutions</span></span>
-      <span class="legend-item type-event" title="Événements"><span class="ico" data-icon="sparkle"></span><span class="legend-text">Événements</span></span>
+      <span class="legend-item type-event" title="Événements"><span class="ico" data-icon="flag"></span><span class="legend-text">Événements</span></span>
     </div>
 
     <div class="scene-tools">
@@ -38,7 +35,6 @@
 
 
         <div id="search-block" class="search-block">
-          <p id="dataset-note" class="dataset-note"></p>
           <div id="slot-a" class="slot">
             <div id="field-a" class="field">
               <span class="ico field-icon" data-icon="search"></span>
@@ -69,22 +65,17 @@
       <div id="sheet-scroll" class="sheet-scroll" tabindex="-1">
         <section id="view-home" class="view" aria-label="Comment utiliser RELIA">
           <section id="hero" class="hero" aria-labelledby="hero-title">
-            <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span>Exploration des savoirs</p>
+            <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span>Recherche réelle</p>
             <h1 id="hero-title">Tout est <em>relié.</em></h1>
-            <p class="lead">Cherchez une personne pour voir ce qui est documenté autour d’elle. Ajoutez une seconde personne pour savoir si un lien documenté les relie.</p>
-            <div id="examples" class="examples"></div>
+            <p class="lead">Cherchez un nom. RELIA montre les personnes, œuvres, lieux et événements liés, avec la source de chaque lien.</p>
+            <div id="examples" class="examples" aria-label="Exemples de recherche"></div>
           </section>
-          <div id="home-dataset" class="segmented wide" role="group" aria-label="Source des données">
-            <button type="button" data-dataset="real" aria-pressed="true">Données réelles</button>
-            <button type="button" data-dataset="demo" aria-pressed="false">Démo fictive</button>
-          </div>
-          <h3 class="section-title">Comment ça marche</h3>
           <ol class="steps">
-            <li><span class="step-icon"><span class="ico" data-icon="search"></span></span><div><strong>Chercher</strong><p>Choisissez l’identité exacte dans la liste. Un nom seul ne suffit pas, car plusieurs personnes peuvent le porter.</p></div></li>
-            <li><span class="step-icon"><span class="ico" data-icon="graph"></span></span><div><strong>Explorer</strong><p>Voyez les œuvres, institutions, lieux et événements liés. Chaque lien affiche sa référence.</p></div></li>
-            <li><span class="step-icon"><span class="ico" data-icon="link"></span></span><div><strong>Relier</strong><p>Ajoutez une seconde personne. RELIA cherche un lien documenté, ou dit clairement ce qu’il n’a pas pu vérifier.</p></div></li>
+            <li><span class="step-icon"><span class="ico" data-icon="search"></span></span><div><strong>Chercher</strong><p>Tapez un nom et choisissez l’identité exacte dans la liste.</p></div></li>
+            <li><span class="step-icon"><span class="ico" data-icon="lightbulb"></span></span><div><strong>Découvrir</strong><p>« Le saviez-vous » révèle une œuvre ou un lien documenté autour de la personne.</p></div></li>
+            <li><span class="step-icon"><span class="ico" data-icon="link"></span></span><div><strong>Relier</strong><p>Ajoutez une seconde personne : RELIA cherche un lien documenté, ou dit ce qu’il n’a pas pu vérifier.</p></div></li>
           </ol>
-          <div class="note-card"><span class="ico" data-icon="info"></span><p>Les données réelles viennent de Wikidata. Le fond de la constellation est une illustration fictive.</p></div>
+          <div class="note-card"><span class="ico" data-icon="info"></span><p>Toutes les données viennent de Wikidata, Wikipedia et Wikimedia Commons. Aucune donnée fictive.</p></div>
         </section>
 
         <section id="view-results" class="view" hidden>
@@ -95,6 +86,7 @@
 
         <section id="view-identity" class="view" hidden>
           <div id="identity-hero"></div>
+          <div id="identity-savoir" class="identity-savoir"></div>
           <div id="identity-actions" class="actions-row"></div>
           <div id="identity-tabs" class="segmented" role="tablist" aria-label="Sections de l’identité">
             <button type="button" role="tab" id="tab-liens" data-tab="liens" aria-selected="true">Liens</button>
@@ -107,6 +99,7 @@
             <span class="ico chevron" data-icon="chevron"></span>
           </button>
           <div id="identity-panel" class="stack" role="tabpanel" aria-labelledby="tab-liens"></div>
+          <section id="video-rail" class="video-rail" aria-label="Vidéos liées" hidden></section>
         </section>
 
         <section id="view-relation" class="view" hidden>
@@ -166,7 +159,7 @@
             <li><span class="key-glyph"><span class="ico" data-icon="person"></span></span><span>Chaque forme indique un type : personne, œuvre, lieu, institution ou événement.</span></li>
             <li><span class="key-glyph"><span class="ico" data-icon="link"></span></span><span>Un trait est une relation documentée. Touchez-le pour afficher sa source.</span></li>
             <li><span class="key-glyph key-ab"><b class="role-badge a">A</b><b class="role-badge b">B</b></span><span>Les deux personnes reliées sont en bleu (A) et en rose (B).</span></li>
-            <li><span class="key-glyph key-gold"><span class="ico" data-icon="sparkle"></span></span><span>Le trait doré met en évidence le lien trouvé, quand il existe.</span></li>
+            <li><span class="key-glyph key-gold"><span class="ico" data-icon="link"></span></span><span>Le trait bleu met en évidence le lien trouvé, quand il existe.</span></li>
           </ul>
           <h3 class="section-title">Ce que RELIA ne fait pas</h3>
           <ul class="bullets">

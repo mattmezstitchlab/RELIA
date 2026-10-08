@@ -1,6 +1,8 @@
 import './styles.css';
 import { NetworkView } from './graph.js';
-import { LIMITS, PROPERTIES, demoGraph, emptyGraph, eligible, entityFromRaw, expandEntity, findRemotePath, getEntities, getWikipediaSummary, inPeriod, safeURL, searchEntities, shortestPath } from './data.js';
+import { LIMITS, PROPERTIES, emptyGraph, eligible, entityFromRaw, expandEntity, findRemotePath, getEntities, getWikipediaSummary, inPeriod, safeURL, searchEntitiesPage } from './data.js';
+import { fetchCommonsVideos, youtubeIdsFromClaims, youtubeItems } from './videos.js';
+import { pickRevelation } from './savoir.js';
 import { getBnfEnrichment } from './bnf.js';
 import { buildTimeline } from './timeline.js';
 import { compareSnapshots, createSnapshot, exportRegistry, validateSnapshot } from './discovery.js';
@@ -13,7 +15,7 @@ import { voiceLabel } from './voice.js';
 const $ = id => document.getElementById(id);
 const DESKTOP = window.matchMedia('(min-width: 900px)');
 const typeLabels = { person: 'Personne', work: 'Œuvre', place: 'Lieu', institution: 'Institution', event: 'Événement', unknown: 'Type non déterminé' };
-const evidenceLabels = { referenced: 'Documenté — référence Wikidata', unverified: 'Assertion non vérifiée · sans référence exploitable', deprecated: 'Assertion obsolète · exclue des chemins', fictional: 'Démonstration fictive · aucune preuve réelle' };
+const evidenceLabels = { referenced: 'Documenté — référence Wikidata', unverified: 'Assertion non vérifiée · sans référence exploitable', deprecated: 'Assertion obsolète · exclue des chemins' };
 const claimStatusLabels = {
   assertion: 'Assertion référencée — provenance conservée, véracité non vérifiée',
   hypothesis: 'Hypothèse — assertion sans référence exploitable, exclue des chemins',
@@ -44,8 +46,7 @@ function restoreDiscovery() {
 }
 
 const state = {
-  dataset: 'welcome',
-  graph: demoGraph(),
+  graph: emptyGraph(),
   a: null,
   b: null,
   secondOpen: false,
@@ -184,7 +185,7 @@ function visibleEdges() {
   return [...state.graph.edges.values()].filter(edge => inPeriod(edge, state.period));
 }
 function isLoaded(entity) {
-  return state.dataset !== 'real' || state.graph.expanded.has(entity.id);
+  return state.graph.expanded.has(entity.id);
 }
 function identityEntity() {
   const top = nav.stack.at(-1);
@@ -199,7 +200,6 @@ function edgeDates(edge) {
   return dates.join(' · ') || 'Date de relation inconnue';
 }
 function evidenceBadge(edge) {
-  if (edge.fictional) return badge('info', 'Démonstration fictive', 'neutral');
   if (edge.evidence === 'referenced') return badge('shield', 'Référence déclarée', 'ok');
   return badge('alert', 'Référence indisponible', 'warn');
 }
@@ -241,7 +241,7 @@ const view = new NetworkView($('graph'), {
   onHover: (record, x, y) => {
     $('tooltip').hidden = !record;
     if (record) {
-      $('tooltip').textContent = `${record.label}${record.fictional ? ' · Démonstration fictive' : record.property ? ` · ${evidenceLabels[record.evidence]}` : ''}`;
+      $('tooltip').textContent = `${record.label}${record.property ? ` · ${evidenceLabels[record.evidence]}` : ''}`;
       $('tooltip').style.left = `${Math.min(x + 15, innerWidth - 270)}px`;
       $('tooltip').style.top = `${Math.min(y + 15, innerHeight - 80)}px`;
     }
@@ -266,7 +266,7 @@ function syncScene() {
   }
 }
 function renderLegend() {
-  $('legend').hidden = state.dataset === 'welcome' || !state.graph.nodes.size;
+  $('legend').hidden = !state.graph.nodes.size;
 }
 function renderGraph() {
   syncScene();
@@ -322,31 +322,35 @@ async function enrichResults(found, signal) {
   }
 }
 
-async function runSearch(slot) {
-  const term = slots[slot].input.value.trim();
-  clearTimeout(searchTimer);
+async function runSearch(slot, { more = false } = {}) {
+  const term = more ? results.term : slots[slot].input.value.trim();
   if (term.length < 2) { closeResults(); return; }
+  if (more && (results.phase !== 'done' || !results.next || results.loadingMore)) return;
+  const target = more ? results.slot : slot;
+  clearTimeout(searchTimer);
   searchWork?.controller.abort();
   const controller = new AbortController();
   const { signal } = controller;
-  const dataset = state.dataset;
   searchWork = { controller, signal };
-  Object.assign(results, { open: true, slot, term, phase: 'loading', items: [], message: dataset === 'demo' ? 'Recherche dans la démonstration fictive…' : 'Recherche dans Wikidata…' });
+  if (more) {
+    results.loadingMore = true;
+  } else {
+    Object.assign(results, { open: true, slot, term, phase: 'loading', items: [], next: null, language: 'fr', loadingMore: false, message: 'Recherche dans Wikidata…' });
+  }
   render();
   try {
-    let items;
-    if (dataset === 'demo') {
-      const needle = term.toLocaleLowerCase('fr');
-      items = [...state.graph.nodes.values()].filter(entity => (slot === 'a' || entity.type === 'person') && entity.label.toLocaleLowerCase('fr').includes(needle));
-    } else {
-      items = await enrichResults(await searchEntities(term, { signal }), signal);
-      if (slot === 'b') items = items.filter(entity => entity.type === 'person');
-    }
+    const page = await searchEntitiesPage(term, { signal, limit: 20, continue: more ? results.next : undefined, language: more ? results.language : undefined });
     if (signal.aborted || searchWork?.signal !== signal) return;
-    Object.assign(results, { phase: 'done', items, message: '' });
+    const enriched = await enrichResults(page.items, signal);
+    const fresh = (target === 'b' ? enriched.filter(entity => entity.type === 'person') : enriched)
+      .filter(entity => !more || !results.items.some(item => item.id === entity.id));
+    Object.assign(results, {
+      phase: 'done', items: more ? [...results.items, ...fresh] : fresh, next: page.next, language: page.language, loadingMore: false, message: '',
+    });
   } catch (error) {
     if (signal.aborted || searchWork?.signal !== signal) return;
-    Object.assign(results, { phase: 'error', items: [], message: error.message || 'Recherche indisponible.' });
+    if (more) Object.assign(results, { loadingMore: false });
+    else Object.assign(results, { phase: 'error', items: [], next: null, message: error.message || 'Recherche indisponible.' });
   }
   searchWork = null;
   render();
@@ -360,7 +364,7 @@ function resultRow(entity, slot) {
   const main = el('span', 'row-main');
   main.append(text('span', entity.label, 'row-title'));
   const kind = el('span', `row-kind type-${entity.type || 'unknown'}`);
-  kind.append(iconNode(typeIconName(entity.type)), text('span', `${typeLabels[entity.type] || typeLabels.unknown}${entity.fictional ? ' · fictif' : ` · ${entity.id}`}`));
+  kind.append(iconNode(typeIconName(entity.type)), text('span', `${typeLabels[entity.type] || typeLabels.unknown} · ${entity.id}`));
   main.append(kind);
   if (entity.description) main.append(text('span', entity.description, 'row-sub'));
   row.append(main, iconNode('chevron', 'ico row-go'));
@@ -374,7 +378,7 @@ function renderResults() {
   empty.hidden = true;
   empty.textContent = '';
   hint.textContent = '';
-  const { phase, items, message, slot } = results;
+  const { phase, items, message, slot, next, loadingMore } = results;
   if (phase === 'loading') {
     hint.textContent = message;
     list.append(text('p', 'Recherche en cours…', 'search-message'));
@@ -388,16 +392,21 @@ function renderResults() {
   if (!items.length) {
     empty.hidden = false;
     empty.textContent = slot === 'b'
-      ? 'Aucune personne trouvée pour cette recherche. Essayez une autre orthographe.'
-      : 'Aucune identité trouvée pour cette recherche. Essayez une autre orthographe.';
+      ? 'Aucune personne trouvée pour ce nom. Essayez une autre orthographe.'
+      : 'Aucun résultat pour ce nom. Essayez une autre orthographe, ou le nom complet.';
     $('search-live').textContent = empty.textContent;
     return;
   }
-  hint.textContent = state.dataset === 'demo'
-    ? (slot === 'b' ? 'Démonstration fictive · choisissez une personne imaginaire.' : 'Démonstration fictive · choisissez une identité imaginaire.')
-    : (slot === 'b' ? 'Seules les personnes sont proposées. Choisissez la personne exacte.' : 'Choisissez l’identité exacte ; un nom seul ne suffit pas.');
+  hint.textContent = slot === 'b'
+    ? 'Seules les personnes sont proposées. Choisissez la personne exacte.'
+    : 'Choisissez l’identité exacte ; un nom seul ne suffit pas.';
   for (const entity of items) list.append(resultRow(entity, slot));
-  $('search-live').textContent = `${items.length} résultat${items.length > 1 ? 's' : ''}. Choisissez l’identité exacte.`;
+  if (next) {
+    const more = button(loadingMore ? 'Chargement…' : 'Voir plus de résultats', () => runSearch(slot, { more: true }), 'pill wide more-results');
+    more.disabled = loadingMore;
+    list.append(more);
+  }
+  $('search-live').textContent = `${items.length} résultat${items.length > 1 ? 's' : ''}${next ? ' affichés' : ''}. Choisissez l’identité exacte.`;
 }
 
 function chipNode(slot, entity) {
@@ -433,17 +442,6 @@ function renderSlots() {
   $('pair-link').hidden = !state.b;
 }
 
-function renderDatasetNote() {
-  const labels = {
-    welcome: 'Recherche sur Wikidata · données réelles',
-    real: 'Données réelles · Wikidata',
-    demo: 'Démonstration fictive · personnages imaginaires',
-  };
-  const note = $('dataset-note');
-  note.textContent = labels[state.dataset] || labels.welcome;
-  note.dataset.kind = state.dataset === 'demo' ? 'demo' : 'real';
-}
-
 async function pickResult(slot, entity) {
   closeResults({ clearInputs: true });
   if (slot === 'a') await chooseFirst(entity);
@@ -451,11 +449,6 @@ async function pickResult(slot, entity) {
 }
 
 async function chooseFirst(entity) {
-  if (state.dataset === 'welcome') chooseDataset('real', { preset: false });
-  if (state.dataset === 'demo') {
-    selectDemoIdentity(entity.id);
-    return;
-  }
   await selectRealIdentity(entity.id, entity);
 }
 
@@ -474,11 +467,7 @@ function chooseSecond(entity) {
   renderGraph();
   ensureSheetOpen();
   render();
-  if (state.dataset === 'demo') {
-    searchPath();
-  } else {
-    status(`${state.b.label} est ajoutée. Cherchez maintenant un lien documenté.`);
-  }
+  status(`${state.b.label} est ajoutée. Cherchez maintenant un lien documenté.`);
 }
 
 function clearRelationState() {
@@ -531,68 +520,8 @@ function searchFromExample(name) {
   runSearch('a');
 }
 
-/* ==================== JEUX DE DONNÉES ==================== */
-function chooseDataset(dataset, { preset = true } = {}) {
-  abortWork();
-  cancelBiography();
-  closeResults();
-  resetNav();
-  state.dataset = dataset;
-  state.graph = dataset === 'demo' ? demoGraph() : emptyGraph();
-  state.a = null;
-  state.b = null;
-  state.secondOpen = false;
-  state.period = { from: null, to: null, undated: true };
-  state.path = null;
-  state.discoverySearch = null;
-  state.relation = { status: 'idle', result: null, progress: '' };
-  $('year-from').value = '';
-  $('year-to').value = '';
-  $('include-undated').checked = true;
-  $('time-status').textContent = '';
-  document.body.classList.remove('landing');
-  ui.rootKey = null;
-  ui.selectedId = undefined;
-  view.highlightPath(null);
-  view.reset();
-  if (dataset === 'demo' && preset) {
-    state.a = state.graph.nodes.get('D1') ?? null;
-    state.b = state.graph.nodes.get('D2') ?? null;
-  }
-  renderGraph();
-  ensureSheetOpen();
-  render();
-  status(dataset === 'demo'
-    ? 'Démonstration fictive : toutes les identités, relations et dates sont imaginaires.'
-    : 'Recherchez une personne, puis choisissez son identité exacte. Les sources restent visibles.');
-  if (dataset === 'demo' && preset && state.a && state.b) searchPath();
-}
-
-function setDataset(value) {
-  if (value === state.dataset) return;
-  chooseDataset(value);
-}
-
 /* ==================== SÉLECTION ==================== */
-function selectDemoIdentity(id) {
-  const entity = state.graph.nodes.get(id);
-  if (!entity) return;
-  if (state.a?.id !== id) {
-    clearRelationState();
-    state.b = null;
-    state.secondOpen = false;
-  }
-  resetNav();
-  state.a = entity;
-  view.focus(id);
-  renderGraph();
-  ensureSheetOpen();
-  render();
-  status(`${entity.label} · Démonstration fictive. Ajoutez une seconde personne pour chercher un lien.`);
-}
-
 async function selectRealIdentity(id, seed = null) {
-  if (state.dataset !== 'real') return;
   const work = beginWork();
   if (state.a?.id !== id) {
     clearRelationState();
@@ -632,7 +561,7 @@ async function selectRealIdentity(id, seed = null) {
 }
 
 async function ensureExpanded(id) {
-  if (state.dataset !== 'real' || state.graph.expanded.has(id) || !state.graph.nodes.has(id)) return;
+  if (state.graph.expanded.has(id) || !state.graph.nodes.has(id)) return;
   ui.detailController?.abort();
   const controller = new AbortController();
   ui.detailController = controller;
@@ -657,13 +586,11 @@ async function ensureExpanded(id) {
 function openNode(id) {
   if (!state.graph.nodes.has(id)) return;
   sound.playChime(540);
-  if (state.dataset === 'welcome') chooseDataset('demo', { preset: false });
   if (resolveMode(state) === 'relation') {
     openDetail(id);
     return;
   }
-  if (state.dataset === 'demo') selectDemoIdentity(id);
-  else selectRealIdentity(id);
+  selectRealIdentity(id);
 }
 
 function openDetail(id) {
@@ -712,7 +639,7 @@ function showEdge(edge) {
   ui.sourceEdge = edge;
   if (nav.stack.at(-1)?.name === 'source') render();
   else pushView('source', SUB_TITLES.source);
-  status(edge.fictional ? 'Démonstration fictive : aucun document réel.' : evidenceLabels[edge.evidence]);
+  status(evidenceLabels[edge.evidence]);
 }
 function openMedia(entity) {
   ui.media = {
@@ -743,7 +670,6 @@ function render() {
   $('subhead').hidden = !sub;
   $('sheet-title').textContent = sub ? (top.title || '') : '';
   renderSlots();
-  renderDatasetNote();
   renderSoundButton();
   syncScene();
   $('input-a').setAttribute('aria-expanded', String(results.open && results.slot === 'a'));
@@ -771,14 +697,11 @@ function render() {
   ui.wasSub = sub;
 }
 
+const EXAMPLE_NAMES = ['Marie Curie', 'Victor Hugo', 'Ada Lovelace', 'Claude Monet'];
 function renderHome() {
   const examples = $('examples');
   examples.replaceChildren();
-  const names = state.dataset === 'demo' ? ['Lila Vesper', 'Noé Sillage'] : ['Sandrine Sarroche', 'Pierre Lefebvre'];
-  for (const name of names) examples.append(button(name, () => searchFromExample(name), 'example-chip'));
-  for (const option of document.querySelectorAll('#home-dataset [data-dataset]')) {
-    option.setAttribute('aria-pressed', String(option.dataset.dataset === (state.dataset === 'demo' ? 'demo' : 'real')));
-  }
+  for (const name of EXAMPLE_NAMES) examples.append(button(name, () => searchFromExample(name), 'example-chip'));
 }
 
 /* ---- Identité : une personne explorée ---- */
@@ -793,18 +716,161 @@ function renderIdentity() {
     hero.append(text('p', 'Choisissez une personne pour explorer son réseau.', 'muted-text'));
     cancelBiography();
     $('identity-panel').replaceChildren();
+    $('identity-savoir').replaceChildren();
+    $('video-rail').hidden = true;
     return;
   }
   hero.append(identityHero(entity));
   for (const node of identityActions(entity)) actions.append(node);
+  renderSavoir(entity);
+  renderVideoRail(entity);
   renderIdentityPanel();
+}
+
+/* ---- Le saviez-vous : une relation documentée, avec sa référence ---- */
+function savoirNode(node) {
+  const chip = el('div', `savoir-node type-${node.type || 'unknown'}`);
+  chip.append(iconNode(typeIconName(node.type), 'ico'), text('span', node.label, 'savoir-name'));
+  return chip;
+}
+
+function renderSavoir(entity) {
+  const box = $('identity-savoir');
+  box.replaceChildren();
+  if (!isLoaded(entity)) return;
+  const found = pickRevelation(entity.id, [...state.graph.edges.values()], state.graph.nodes);
+  if (!found) return;
+  const subject = found.focusFirst ? entity : found.other;
+  const object = found.focusFirst ? found.other : entity;
+  const card = el('section', 'savoir-card');
+  card.setAttribute('aria-label', 'Le saviez-vous');
+  const head = el('div', 'savoir-head');
+  head.append(iconNode('lightbulb', 'ico'), text('span', 'Le saviez-vous', 'savoir-kicker'));
+  const chain = el('div', 'savoir-chain');
+  const relationPill = text('span', found.relation, 'savoir-relation');
+  chain.append(savoirNode(subject), relationPill, savoirNode(object));
+  const foot = el('div', 'savoir-foot');
+  foot.append(text('span', 'Relation documentée dans les données consultées.', 'fine-print'));
+  foot.append(link(found.source.label === 'Référence Wikidata' ? 'Voir la référence' : 'Voir la source', found.source.url, 'text-link'));
+  card.append(head, chain, foot);
+  box.append(card);
+}
+
+/* ---- Vidéos liées : carrousel en bas de la feuille ---- */
+const videoCache = new Map();
+let videoWork = null;
+let activeVideoStop = null;
+
+function renderVideoRail(entity) {
+  const rail = $('video-rail');
+  if (!entity) { rail.hidden = true; return; }
+  const cached = videoCache.get(entity.id);
+  if (!cached) {
+    rail.hidden = true;
+    rail.replaceChildren();
+    loadVideos(entity);
+    return;
+  }
+  drawVideoRail(rail, cached);
+}
+
+async function loadVideos(entity) {
+  if (videoCache.has(entity.id) || videoWork?.id === entity.id) return;
+  const controller = new AbortController();
+  videoWork = { id: entity.id, controller };
+  const declared = youtubeItems(youtubeIdsFromClaims(entity.raw?.claims), entity.label);
+  let items = declared;
+  try {
+    items = [...declared, ...await fetchCommonsVideos(entity.label, { signal: controller.signal })];
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    // Échec silencieux : seules les vidéos déclarées dans Wikidata restent proposées.
+  }
+  if (videoWork?.controller !== controller) return;
+  videoWork = null;
+  videoCache.set(entity.id, items);
+  if (identityEntity()?.id === entity.id) renderVideoRail(entity);
+}
+
+function drawVideoRail(rail, items) {
+  rail.replaceChildren();
+  if (!items.length) { rail.hidden = true; return; }
+  rail.hidden = false;
+  rail.classList.toggle('is-collapsed', Boolean(ui.railCollapsed));
+  const head = el('button', 'rail-head');
+  head.type = 'button';
+  head.setAttribute('aria-expanded', String(!ui.railCollapsed));
+  head.append(iconNode('video', 'ico'), text('span', `Vidéos liées · ${items.length}`, 'rail-title'), iconNode('chevronDown', 'ico rail-chevron'));
+  head.addEventListener('click', () => {
+    ui.railCollapsed = !ui.railCollapsed;
+    rail.classList.toggle('is-collapsed', ui.railCollapsed);
+    head.setAttribute('aria-expanded', String(!ui.railCollapsed));
+  });
+  const track = el('ul', 'rail-track');
+  track.setAttribute('aria-label', 'Vidéos liées à ce nom');
+  for (const item of items) track.append(videoCard(item));
+  rail.append(head, track);
+}
+
+function videoCard(item) {
+  const li = el('li', 'rail-card');
+  const frame = el('div', 'rail-frame');
+  const open = el('button', 'rail-thumb');
+  open.type = 'button';
+  open.setAttribute('aria-label', `Lire la vidéo : ${item.title}`);
+  if (item.poster) {
+    const img = el('img', 'rail-poster');
+    img.src = item.poster;
+    img.alt = '';
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    open.append(img);
+  }
+  open.append(iconNode('play', 'ico rail-play'));
+  open.addEventListener('click', () => playVideo(frame, item));
+  frame.append(open);
+  const caption = el('div', 'rail-caption');
+  caption.append(text('span', item.title, 'rail-name'), link('Source', item.source, 'rail-source'));
+  li.append(frame, caption);
+  return li;
+}
+
+function playVideo(frame, item) {
+  activeVideoStop?.();
+  const original = [...frame.childNodes];
+  let player;
+  if (item.kind === 'youtube') {
+    player = el('iframe');
+    player.src = item.embed;
+    player.title = item.title;
+    player.allow = 'accelerometer; encrypted-media; picture-in-picture';
+    player.allowFullscreen = true;
+    player.referrerPolicy = 'strict-origin-when-cross-origin';
+  } else {
+    player = el('video');
+    player.controls = true;
+    player.playsInline = true;
+    player.preload = 'metadata';
+    if (item.poster) player.poster = item.poster;
+    const source = el('source');
+    source.src = item.src;
+    source.type = item.mime || 'video/webm';
+    player.append(source);
+  }
+  frame.replaceChildren(player);
+  activeVideoStop = () => {
+    if (player.tagName === 'VIDEO') player.pause();
+    frame.replaceChildren(...original);
+    activeVideoStop = null;
+  };
+  if (player.tagName === 'VIDEO') player.play().catch(() => { /* lecture refusée par le navigateur : les commandes restent disponibles */ });
 }
 
 function identityHero(entity) {
   const card = el('section', 'identity-card');
   card.style.setProperty('--t', `var(--t-${entity.type || 'unknown'})`);
   const body = el('div', 'identity-text');
-  body.append(text('p', `${typeLabels[entity.type] || typeLabels.unknown}${entity.fictional ? ' · Démonstration fictive' : ` · ${entity.id}`}`, 'kicker'));
+  body.append(text('p', `${typeLabels[entity.type] || typeLabels.unknown} · ${entity.id}`, 'kicker'));
   body.append(text('h2', entity.label, 'identity-name'));
   const chips = el('div', 'chip-row');
   const dates = lifeDates(entity);
@@ -1034,20 +1100,16 @@ function renderAbout(panel, entity) {
 function sourcesCard(entity) {
   const card = el('section', 'card');
   card.append(text('h3', 'Sources et identifiants', 'card-title'));
-  if (entity.fictional) {
-    card.append(text('p', 'Démonstration fictive : aucune source réelle, aucun identifiant Wikidata.', 'fine-print'));
-  } else {
-    card.append(text('p', 'Les références documentent la provenance des assertions, pas leur véracité. RELIA ne vérifie pas automatiquement les faits dans les documents externes.', 'fine-print'));
-    card.append(link('Identité et historique Wikidata', `https://www.wikidata.org/wiki/${entity.id}`));
-    if (entity.wiki) card.append(link(`Article Wikipédia (${entity.wikiLang}) · sitelink exact`, entity.wiki));
-  }
+  card.append(text('p', 'Les références documentent la provenance des assertions, pas leur véracité. RELIA ne vérifie pas automatiquement les faits dans les documents externes.', 'fine-print'));
+  card.append(link('Identité et historique Wikidata', `https://www.wikidata.org/wiki/${entity.id}`));
+  if (entity.wiki) card.append(link(`Article Wikipédia (${entity.wikiLang}) · sitelink exact`, entity.wiki));
   if (entity.bnfIdentifier) card.append(text('p', `Identifiant d’autorité BnF porté par Wikidata (P268) : ${entity.bnfIdentifier}`, 'fine-print'));
   const edges = visibleEdges().filter(edge => edge.from === entity.id || edge.to === entity.id);
   if (edges.length) {
     card.append(text('p', 'Sources des liens visibles', 'group-title'));
     for (const edge of edges) {
       const other = state.graph.nodes.get(edge.from === entity.id ? edge.to : edge.from);
-      card.append(iconButton(`${other?.label || edge.to} · ${entity.fictional ? 'Démonstration fictive' : edge.property}`, 'doc', () => showEdge(edge), 'pill small'));
+      card.append(iconButton(`${other?.label || edge.to} · ${edge.property}`, 'doc', () => showEdge(edge), 'pill small'));
     }
   }
   return card;
@@ -1163,9 +1225,7 @@ function renderRelation() {
 function renderRelationCall(body) {
   const card = el('section', 'card callout');
   card.append(text('h3', 'Chercher un lien documenté', 'card-title'));
-  card.append(text('p', state.dataset === 'demo'
-    ? 'Démonstration fictive : RELIA cherche un chemin dans un graphe imaginaire.'
-    : 'RELIA suit les relations documentées autour des deux personnes, dans les deux sens, par niveaux et dans des limites affichées.', 'body-text'));
+  card.append(text('p', 'RELIA suit les relations documentées autour des deux personnes, dans les deux sens, par niveaux et dans des limites affichées.', 'body-text'));
   if (state.period.from !== null || state.period.to !== null) card.append(text('p', `Période appliquée : ${periodLabel()}.`, 'fine-print'));
   card.append(iconButton('Chercher un lien documenté', 'link', searchPath, 'btn primary'));
   const details = el('details', 'disclosure');
@@ -1215,7 +1275,7 @@ function pathSteps(path) {
       text('span', `${reverse ? 'Lien lu dans le sens inverse' : 'Lien lu dans le sens direct'}${edge.property ? ` · ${edge.property}` : ''}`, 'row-meta'),
     );
     const refs = edge.references?.length || 0;
-    step.append(iconButton(edge.fictional ? 'Voir la relation fictive' : `Source · ${refs} référence${refs > 1 ? 's' : ''}`, 'doc', () => showEdge(edge), 'pill small'));
+    step.append(iconButton(`Source · ${refs} référence${refs > 1 ? 's' : ''}`, 'doc', () => showEdge(edge), 'pill small'));
     wrap.append(step);
   });
   return wrap;
@@ -1229,13 +1289,11 @@ function renderRelationFound(body, result) {
   head.append(iconNode('check', 'ico ok'), text('h3', 'Lien documenté trouvé', 'card-title'));
   card.append(
     head,
-    text('p', `${path.edges.length} lien${path.edges.length > 1 ? 's' : ''} · ${intermediate} intermédiaire${intermediate > 1 ? 's' : ''}${state.dataset === 'demo' ? ' · démonstration fictive' : ' · références de provenance'}`, 'fine-print'),
+    text('p', `${path.edges.length} lien${path.edges.length > 1 ? 's' : ''} · ${intermediate} intermédiaire${intermediate > 1 ? 's' : ''} · références de provenance`, 'fine-print'),
     pathSteps(path),
   );
   if (path.edges.length) card.append(iconButton('Raconter ce lien', 'play', () => launchPathStory(path), 'btn primary'));
-  card.append(text('p', state.dataset === 'demo'
-    ? 'Démonstration fictive : ce chemin n’est pas une relation réelle.'
-    : 'Les références indiquent d’où vient chaque information. Elles ne prouvent pas qu’elle est vraie.', 'caveat'));
+  card.append(text('p', 'Les références indiquent d’où vient chaque information. Elles ne prouvent pas qu’elle est vraie.', 'caveat'));
   if (result.incomplete) card.append(text('p', 'La recherche est incomplète : il peut exister un lien plus court.', 'warn-note'));
   if (result.incomplete || result.bounded) card.append(iconButton('Relancer la recherche', 'reset', searchPath, 'pill'));
   card.append(scopeDetails(result));
@@ -1250,8 +1308,6 @@ function renderRelationNotFound(body, result) {
   card.append(head);
   if (incomplete) {
     card.append(text('p', 'La recherche bornée s’est arrêtée avant d’avoir tout consulté. Aucun lien n’a été trouvé dans les données déjà consultées.', 'body-text'));
-  } else if (state.dataset === 'demo') {
-    card.append(text('p', 'Dans la démonstration fictive, aucun chemin ne relie ces deux personnages.', 'body-text'));
   } else {
     card.append(text('p', 'Aucun chemin documenté n’a été trouvé dans les données explorées.', 'body-text'));
     card.append(text('p', 'Cela ne prouve pas l’absence de relation réelle.', 'caveat'));
@@ -1281,13 +1337,6 @@ async function searchPath() {
   const { a, b } = state;
   if (!relationReady(a, b)) {
     status('Ajoutez une deuxième personne pour chercher un lien.');
-    return;
-  }
-  if (state.dataset === 'demo') {
-    const path = shortestPath(state.graph, a.id, b.id, state.period, true);
-    if (path) sound.playSuccess();
-    setRelationResult({ path });
-    status('Démonstration fictive : ce chemin n’est pas une relation réelle.');
     return;
   }
   const work = beginWork();
@@ -1349,10 +1398,6 @@ function sourceCard(edge) {
   const source = state.graph.nodes.get(edge.from), target = state.graph.nodes.get(edge.to);
   card.append(text('strong', `${source?.label || edge.from} · ${target?.label || edge.to}`), text('div', `${edge.label}${edge.property ? ` (${edge.property})` : ''}`), text('div', `Classification : ${edge.classification || 'démonstration fictive'}`), text('span', claimStatusLabels[edge.claimStatus] || evidenceLabels[edge.evidence], 'evidence-badge'), text('div', edgeDates(edge)));
   if (['P19', 'P20', 'P131'].includes(edge.property)) card.append(text('p', 'Relation géographique visible pour le contexte, exclue des chemins professionnels et culturels.', 'fine-print'));
-  if (edge.fictional) {
-    card.append(text('p', 'Démonstration fictive : aucune source, aucun identifiant Wikidata, aucune preuve réelle.'));
-    return card;
-  }
   card.append(link('Propriété Wikidata', `https://www.wikidata.org/wiki/Property:${edge.property}`));
   card.append(text('div', `Identifiant d’assertion : ${edge.id}`), text('div', `Rang : ${edge.rank === 'preferred' ? 'préféré' : edge.rank === 'deprecated' ? 'obsolète' : 'normal'}`), text('div', `Consulté par RELIA : ${new Date(edge.retrievedAt).toLocaleString('fr-FR')}`));
   card.append(link('Consulter l’assertion et ses références', `https://www.wikidata.org/wiki/${edge.from}#${edge.property}`));
@@ -1399,9 +1444,7 @@ function renderMedia() {
 function renderAccessible() {
   const container = $('list-body');
   container.replaceChildren();
-  container.append(text('p', state.dataset === 'real'
-    ? 'Graphe réel consulté · Wikidata. Les références documentent la provenance, pas la véracité.'
-    : 'Démonstration fictive : toutes les identités et relations sont imaginaires.', 'fine-print'));
+  container.append(text('p', 'Graphe réel consulté · Wikidata. Les références documentent la provenance, pas la véracité.', 'fine-print'));
   if (!state.graph.nodes.size) {
     container.append(text('p', 'Recherchez une identité pour charger son réseau.', 'muted-text'));
     return;
@@ -1414,7 +1457,7 @@ function renderAccessible() {
     const main = el('span', 'row-main');
     main.append(
       text('span', entity.label, 'row-title'),
-      text('span', `${typeLabels[entity.type] || typeLabels.unknown}${entity.typeBasis === 'relationship' ? ' (catégorie suggérée)' : ''}${entity.fictional ? ' · fictif' : ` · ${entity.id}`}`, 'row-sub'),
+      text('span', `${typeLabels[entity.type] || typeLabels.unknown}${entity.typeBasis === 'relationship' ? ' (catégorie suggérée)' : ''} · ${entity.id}`, 'row-sub'),
     );
     row.append(avatarNode(entity, 'md'), main, iconNode('chevron', 'ico row-go'));
     row.addEventListener('click', () => openNode(entity.id));
@@ -1430,7 +1473,7 @@ function renderAccessible() {
     const main = el('span', 'row-main');
     main.append(
       text('span', `${state.graph.nodes.get(edge.from)?.label || edge.from} · ${edge.label} · ${state.graph.nodes.get(edge.to)?.label || edge.to}`, 'row-title'),
-      text('span', `${edge.classification || 'démonstration fictive'} · ${claimStatusLabels[edge.claimStatus] || evidenceLabels[edge.evidence]} · ${edgeDates(edge)}`, 'row-sub'),
+      text('span', `${edge.classification || 'relation documentée'} · ${claimStatusLabels[edge.claimStatus] || evidenceLabels[edge.evidence]} · ${edgeDates(edge)}`, 'row-sub'),
     );
     const glyph = el('span', 'key-glyph');
     glyph.append(iconNode('link'));
@@ -1540,22 +1583,18 @@ function playSample() {
 function renderSettings() {
   const body = $('settings-body');
   body.replaceChildren();
-  body.append(settingsGroup('Données', [
-    settingRow('Source des identités', segmented([['real', 'Wikidata'], ['demo', 'Démo fictive']], state.dataset === 'demo' ? 'demo' : 'real', setDataset, 'Source des identités'), 'Wikidata : données réelles. Démo : personnages imaginaires, hors ligne.', { stacked: true }),
-  ]));
-  body.append(settingsGroup('Apparence', [
+  body.append(settingsGroup('Affichage', [
     settingRow('Thème', segmented([['light', 'Clair'], ['dark', 'Sombre']], document.body.dataset.theme === 'dark' ? 'dark' : 'light', setTheme, 'Thème'), '', { stacked: true }),
   ]));
   body.append(settingsGroup('Narration', [
-    settingRow('Narration vocale', switchControl('Narration vocale', voice.enabled, value => { voice.setEnabled(value); renderSoundButton(); }), voice.supported ? 'Lit les textes à voix haute.' : 'Non disponible sur ce navigateur.'),
+    settingRow('Voix et sons', switchControl('Voix et sons', sound.enabled || voice.enabled, value => { sound.setEnabled(value); voice.setEnabled(value); renderSoundButton(); }), 'Effets sonores et narration vocale des récits.'),
     settingRow('Rythme de lecture', segmented([['calm', 'Posée'], ['normal', 'Normale']], voice.rateKey, key => voice.setRate(key), 'Rythme de lecture'), 'Posée : plus lente, plus facile à suivre.', { stacked: true }),
     voiceBlock(),
     settingRow('Écouter un extrait', iconButton('Écouter', 'speaker', playSample, 'pill small')),
   ]));
-  body.append(settingsGroup('Sons', [
-    settingRow('Effets sonores', switchControl('Effets sonores', sound.enabled, value => { sound.setEnabled(value); renderSoundButton(); }), 'Petits signaux à l’ouverture et à chaque étape du récit.'),
-  ]));
-  body.append(settingsGroup('Avancé', [
+  body.append(settingsGroup('Explorer', [
+    settingRow('Liste accessible', iconButton('Ouvrir la liste', 'list', () => openSubview('list', SUB_TITLES.list), 'pill small'), 'Les mêmes informations, en texte.'),
+    settingRow('Aide et limites', iconButton('Ouvrir l’aide', 'help', () => openSubview('help', SUB_TITLES.help), 'pill small'), 'Ce que RELIA affiche, et ce qu’il ne prouve pas.'),
     settingRow('Comparer deux états', iconButton('Ouvrir Discovery', 'compass', () => openSubview('advanced', SUB_TITLES.advanced), 'pill small'), 'Expérimental : instantanés JSON et comparaison déterministe.'),
   ]));
   body.append(text('p', 'Les préférences et les instantanés Discovery restent stockés sur cet appareil.', 'settings-foot'));
@@ -1564,23 +1603,14 @@ function renderSettings() {
 function setTheme(theme) {
   const dark = theme === 'dark';
   document.body.dataset.theme = dark ? 'dark' : 'light';
-  document.querySelector('meta[name="theme-color"]').content = dark ? '#0b0b14' : '#f4f5f9';
+  document.querySelector('meta[name="theme-color"]').content = dark ? '#14151B' : '#F5F6FA';
   view.setTheme();
   try { localStorage.setItem('relia-theme', dark ? 'dark' : 'light'); } catch { /* préférence non conservée */ }
 }
 
 function renderSoundButton() {
-  const on = sound.enabled || voice.enabled;
-  const button = $('btn-sound');
-  if (button.dataset.on !== String(on)) {
-    button.dataset.on = String(on);
-    setIcon(button.querySelector('.ico'), on ? 'speaker' : 'speakerOff');
-  }
-  button.setAttribute('aria-pressed', String(on));
-  const label = on ? 'Couper le son et la voix' : 'Activer le son et la voix';
-  button.setAttribute('aria-label', label);
-  button.title = label;
   const storyVoice = $('story-voice-toggle');
+  if (!storyVoice) return;
   storyVoice.replaceChildren(iconNode(voice.enabled ? 'speaker' : 'speakerOff'), text('span', voice.supported ? (voice.enabled ? 'Voix activée' : 'Voix coupée') : 'Voix indisponible'));
   storyVoice.setAttribute('aria-pressed', String(voice.enabled));
   storyVoice.disabled = !voice.supported;
@@ -1780,10 +1810,6 @@ function setDiscoverySnapshot(slot, snapshot) {
   if (!persisted) $('discovery-status').textContent = 'Snapshot conservé pour cette session, mais stockage local indisponible. Téléchargez le JSON pour le garder.';
 }
 function captureDiscoverySnapshot(slot) {
-  if (state.dataset !== 'real') {
-    $('discovery-status').textContent = 'La démonstration fictive ne peut pas produire de snapshots réels.';
-    return;
-  }
   const from = state.a, to = state.b;
   if (!from || !to || !state.graph.nodes.size) {
     $('discovery-status').textContent = 'Cherchez deux personnes et leur lien dans la barre de recherche, puis enregistrez l’état.';
@@ -2018,9 +2044,6 @@ $('results-list').addEventListener('keydown', event => {
 $('add-second').addEventListener('click', addSecond);
 $('back').addEventListener('click', popView);
 
-for (const button of document.querySelectorAll('#home-dataset [data-dataset]')) {
-  button.addEventListener('click', () => setDataset(button.dataset.dataset));
-}
 
 for (const tab of document.querySelectorAll('#identity-tabs [role="tab"]')) {
   tab.addEventListener('click', () => {
@@ -2042,16 +2065,7 @@ $('period-open').addEventListener('click', openTimeView);
 $('apply-time').addEventListener('click', () => applyTime());
 $('clear-time').addEventListener('click', () => applyTime(true));
 
-$('btn-list').addEventListener('click', () => openSubview('list', SUB_TITLES.list));
 $('btn-settings').addEventListener('click', () => openSubview('settings', SUB_TITLES.settings));
-$('btn-help').addEventListener('click', () => openSubview('help', SUB_TITLES.help));
-$('btn-sound').addEventListener('click', () => {
-  const next = !(sound.enabled || voice.enabled);
-  sound.setEnabled(next);
-  voice.setEnabled(next);
-  renderSoundButton();
-  status(next ? 'Audio et voix de narration activés.' : 'Audio et voix de narration coupés.');
-});
 $('btn-reset').addEventListener('click', () => {
   view.reset();
   status('Constellation recentrée.');

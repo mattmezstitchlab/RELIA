@@ -28,7 +28,9 @@ export const ICONS = Object.freeze({
   book: outline('<path d="M4.5 5.8c2.4-1.1 5-1 7.5.7 2.5-1.7 5.1-1.8 7.5-.7v12.2c-2.4-1.1-5-1-7.5.7-2.5-1.7-5.1-1.8-7.5-.7z"/><path d="M12 6.5v12.2"/>'),
   pin: outline('<path d="M12 20.6s6.2-5.3 6.2-10.3a6.2 6.2 0 1 0-12.4 0c0 5 6.2 10.3 6.2 10.3z"/><circle cx="12" cy="10.3" r="2.3"/>'),
   building: outline('<path d="M4 20.5h16"/><path d="M6 20.5v-11L12 4.5l6 5v11"/><path d="M10 20.5v-5h4v5"/><path d="M9.5 12.2h.01M14.5 12.2h.01" stroke-width="2.8"/>'),
-  sparkle: outline('<path d="M11 4.8l1.7 4.5 4.5 1.7-4.5 1.7L11 17.2 9.3 12.7 4.8 11l4.5-1.7z"/><path d="M18 15.2l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>'),
+  flag: outline('<path d="M6 20.5V4"/><path d="M6 4.6h10.6c.9 0 1.3 1.1.6 1.7l-2.3 2.2 2.3 2.2c.6.6.2 1.7-.6 1.7H6"/>'),
+  lightbulb: outline('<path d="M9.4 17.6h5.2M10.2 20.6h3.6"/><path d="M8.7 14.3c-1.3-1-2.2-2.6-2.2-4.5a5.5 5.5 0 1 1 11 0c0 1.9-.9 3.5-2.2 4.5-.6.5-.9 1.1-.9 1.8v.3h-5v-.3c0-.7-.3-1.3-.7-1.8z"/>'),
+  video: outline('<rect x="3.5" y="6.5" width="12.5" height="11" rx="2.8"/><path d="M16 10.4l4.6-2.6v8.4L16 13.6"/>'),
   calendar: outline('<rect x="4" y="5.5" width="16" height="14.5" rx="3.2"/><path d="M4 10h16M8.5 3.5v3.6M15.5 3.5v3.6"/>'),
   photo: outline('<rect x="3.5" y="5" width="17" height="14" rx="3.2"/><circle cx="9" cy="10" r="1.7"/><path d="M4.2 16.8l4.6-4.2 3.2 2.8 2.3-2 5.5 4.2"/>'),
   external: outline('<path d="M13.5 4.5h6v6M19.5 4.5l-8.5 8.5"/><path d="M17 13.5v4.5a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 4 18V8a1.5 1.5 0 0 1 1.5-1.5H10"/>'),
@@ -51,7 +53,7 @@ export const TYPE_ICON = Object.freeze({
   work: 'book',
   place: 'pin',
   institution: 'building',
-  event: 'sparkle',
+  event: 'flag',
   unknown: 'dot',
 });
 

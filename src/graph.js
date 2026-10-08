@@ -3,9 +3,13 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { eligible } from './data.js';
 import { ICONS, TYPE_ICON } from './icons.js';
 
-export const COLORS = { person: '#6344d4', work: '#4338ca', place: '#0f766e', institution: '#1d4ed8', event: '#b45309', unknown: '#64748b' };
-const DARK_COLORS = { person: '#ecebf9', work: '#a081ff', place: '#58dfcc', institution: '#719fff', event: '#e7b969', unknown: '#8f899f' };
-const NETWORK_COLORS = { light: ['#2563eb', '#e11d48', '#7c3aed'], dark: ['#83bdff', '#ff9eb0', '#c6a2ff'] };
+export const COLORS = { person: '#AF52DE', work: '#32ADE6', place: '#30B0A0', institution: '#5E5CE6', event: '#FF6B9D', unknown: '#8E8E93' };
+const DARK_COLORS = { person: '#D9A6F5', work: '#7FD3FF', place: '#6EE7C8', institution: '#9AA0FF', event: '#FF9EC0', unknown: '#A1A1AA' };
+const NETWORK_COLORS = { light: ['#0A84FF', '#FF3B30', '#AF52DE'], dark: ['#64B5FF', '#FF8A80', '#D6A6FF'] };
+// Mise en évidence : bleu d’accent (jamais orange ni jaune).
+const FOCUS_COLOR = { light: '#0A84FF', dark: '#64B5FF' };
+const PATH_LINE = { light: '#0A84FF', dark: '#64B5FF' };
+const PATH_PARTICLE = { light: '#7CC4FF', dark: '#B3DCFF' };
 export const AVATAR_LIMIT = 12;
 export function selectAvatarCandidates(nodes, degree, { reduced = false, mobile = false, deviceMemory = 4, focused = null, pathNodes = new Set() } = {}) {
   if (reduced || deviceMemory < 2 || nodes.length > (mobile ? 14 : 36)) return [];
@@ -57,7 +61,7 @@ export class NetworkView {
     this.controls.enablePan = true; this.controls.minDistance = 38; this.controls.maxDistance = 420;
     this.controls.maxPolarAngle = Math.PI * 0.88;
     this.controls.addEventListener('change', () => { this.dirty = true; });
-    this.controls.addEventListener('start', () => this.cancelTransition());
+    this.controls.addEventListener('start', () => { this.cancelTransition(); this.follow = null; });
     this.geometry = new THREE.SphereGeometry(1, 14, 10);
     this.avatarGeometry = new THREE.CircleGeometry(1, 32);
     this.avatarLoader = new THREE.TextureLoader().setCrossOrigin('anonymous');
@@ -165,6 +169,8 @@ export class NetworkView {
         glyph.innerHTML = ICONS[TYPE_ICON[data.type]] || ICONS.dot;
         const name = document.createElement('span'); name.className = 'graph-label-name'; name.textContent = data.label;
         label.append(glyph, name); this.labels.append(label);
+        // Même geste que le nœud : un clic sur l’étiquette sélectionne l’identité comme un clic sur le point.
+        label.addEventListener('click', event => { event.stopPropagation(); this.onSelect?.(data.id); });
         this.nodes.set(data.id, { id: data.id, data, mesh, halo, position, velocity: new THREE.Vector3(), label, born: performance.now() + index * 28, avatar: null, avatarURL: null, avatarFailedURL: null });
         this.scene.add(mesh, halo);
       } else { this.nodes.get(data.id).data = data; }
@@ -326,6 +332,7 @@ export class NetworkView {
     if (animate && this.iterations < 400) { this.physics(); this.dirty = true; }
     if (!animate && !this.dirty) return;
     this.updateTransition(time);
+    this.updateFollow(time);
     this.controls.update();
     const focused = this.hovered || this.selected;
     const neighbors = new Set([focused]);
@@ -358,7 +365,7 @@ export class NetworkView {
       const theme = typeof document !== 'undefined' && document.body?.dataset.theme === 'dark' ? 'dark' : 'light';
       const networkColor = mask ? NETWORK_COLORS[theme][mask === 3 ? 2 : mask === 2 ? 1 : 0] : null;
       const color = highlighted || node.id === focused
-        ? (theme === 'dark' ? '#edc879' : '#d97706')
+        ? FOCUS_COLOR[theme]
         : rootSide >= 0 ? NETWORK_COLORS[theme][rootSide] : colors[node.data.type] || colors.unknown;
       node.mesh.material.color.set(color); node.halo.material.color.set(networkColor || color);
       node.mesh.material.opacity = opacity * (dim ? 0.18 : 0.96);
@@ -406,14 +413,14 @@ export class NetworkView {
       const mask = (this.networks.get(edge.data.from) || 0) | (this.networks.get(edge.data.to) || 0);
       const theme = typeof document !== 'undefined' && document.body?.dataset.theme === 'dark' ? 'dark' : 'light';
       const palette = NETWORK_COLORS[theme];
-      const lineColor = highlighted ? (theme === 'dark' ? '#edc879' : '#d97706') :
-        mask ? palette[mask === 3 ? 2 : mask === 2 ? 1 : 0] : theme === 'dark' ? '#69567f' : '#cbd5e1';
+      const lineColor = highlighted ? PATH_LINE[theme] :
+        mask ? palette[mask === 3 ? 2 : mask === 2 ? 1 : 0] : theme === 'dark' ? '#4A4F5E' : '#CBD2DC';
       edge.line.material.color.set(lineColor);
       const reveal = animate ? Math.max(0, Math.min(1, (time - Math.max(this.nodes.get(edge.data.from).born, this.nodes.get(edge.data.to).born)) / 850)) : 1;
       edge.line.material.opacity = reveal * (highlighted ? 0.96 : this.pathNodes.size ? 0.12 : near ? 0.85 : mask ? 0.48 : 0.32);
       edge.particle.visible = animate && reveal > 0.6 && (!this.pathNodes.size || highlighted);
       edge.particle.position.lerpVectors(from, to, (time / 6500 + edge.offset) % 1);
-      edge.particle.material.color.set(highlighted ? (theme === 'dark' ? '#ffe1a1' : '#f59e0b') : (theme === 'dark' ? '#b8a2e8' : '#818cf8'));
+      edge.particle.material.color.set(highlighted ? PATH_PARTICLE[theme] : (theme === 'dark' ? '#A8B0C8' : '#9AA3FF'));
     }
     this.renderer.render(this.scene, this.camera); this.dirty = false;
   }
@@ -448,6 +455,17 @@ export class NetworkView {
     };
     this.dirty = true;
   }
+  // Après un recentrage, la caméra accompagne le nœud pendant que la disposition se stabilise.
+  updateFollow(time) {
+    if (!this.follow || this.transition) return;
+    const node = this.nodes.get(this.follow.id);
+    if (!node || time > this.follow.until) { this.follow = null; return; }
+    const delta = node.position.clone().sub(this.controls.target);
+    if (delta.lengthSq() < 1e-6) return;
+    this.controls.target.add(delta);
+    this.camera.position.add(delta);
+    this.dirty = true;
+  }
   updateTransition(time) {
     if (!this.transition) return;
     const transition = this.transition;
@@ -463,6 +481,7 @@ export class NetworkView {
     const destination = this.nodes.get(id).position;
     const offset = this.camera.position.clone().sub(this.controls.target).normalize().multiplyScalar(95);
     this.transitionTo(destination, destination.clone().add(offset));
+    this.follow = { id, until: performance.now() + 2600 };
   }
   reset() {
     if (!this.available) return;
