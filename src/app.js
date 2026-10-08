@@ -190,7 +190,9 @@ function renderPair() {
   } else key.hidden = true;
 }
 function chooseDataset(dataset) {
-  abortWork(); cancelBiography(); clearTimelineStep({ render: false }); state.dataset = dataset; state.graph = dataset === 'demo' ? demoGraph() : emptyGraph();
+  abortWork(); cancelBiography(); clearTimelineStep({ render: false });
+  stopStory(); closeLightbox();
+  state.dataset = dataset; state.graph = dataset === 'demo' ? demoGraph() : emptyGraph();
   state.selected = null; state.path = null; state.discoverySearch = null; state.pair = { from: null, to: null };
   view.setSelected(null);
   state.period = { from: null, to: null, undated: true };
@@ -240,6 +242,7 @@ async function selectReal(id) {
   } finally { if (current(work)) state.controller = null; }
 }
 function selectNode(id) {
+  sound.playChime(540);
   if (state.dataset === 'welcome') { chooseDataset('demo'); openMode('explore'); }
   if (state.dataset === 'demo') { state.selected = id; view.setSelected(id); renderEntity(id); view.focus(id); }
   else selectReal(id);
@@ -356,14 +359,432 @@ function loadBnfDetails(entity, container = $('entity-content')) {
     }
   });
 }
+
+/* ==================== AUDIO & VOCAL NARRATION ENGINE ==================== */
+class SoundEngine {
+  constructor() {
+    this.ctx = null;
+    this.enabled = true;
+    try {
+      const stored = localStorage.getItem('relia-sound');
+      if (stored !== null) this.enabled = stored === 'true';
+    } catch {}
+  }
+  init() {
+    if (!this.ctx && typeof AudioContext !== 'undefined') {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) this.ctx = new AudioCtx();
+    }
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {});
+    }
+  }
+  playChime(pitch = 520) {
+    if (!this.enabled) return;
+    try {
+      this.init();
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(pitch, now);
+      osc.frequency.exponentialRampToValueAtTime(pitch * 1.5, now + 0.12);
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.08, now + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.55);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.6);
+    } catch {}
+  }
+  playTick() {
+    if (!this.enabled) return;
+    try {
+      this.init();
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(800, now);
+      gain.gain.setValueAtTime(0.04, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.09);
+    } catch {}
+  }
+  playSuccess() {
+    if (!this.enabled) return;
+    try {
+      this.init();
+      if (!this.ctx) return;
+      const now = this.ctx.currentTime;
+      [440, 554, 659, 880].forEach((freq, idx) => {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now + idx * 0.07);
+        gain.gain.setValueAtTime(0.001, now + idx * 0.07);
+        gain.gain.linearRampToValueAtTime(0.07, now + idx * 0.07 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.07 + 0.6);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now + idx * 0.07);
+        osc.stop(now + idx * 0.07 + 0.65);
+      });
+    } catch {}
+  }
+  toggle() {
+    this.enabled = !this.enabled;
+    try { localStorage.setItem('relia-sound', String(this.enabled)); } catch {}
+    return this.enabled;
+  }
+}
+
+class VoiceNarrator {
+  constructor() {
+    this.enabled = true;
+    this.rate = 1.0;
+    this.speaking = false;
+    this.voice = null;
+    try {
+      const stored = localStorage.getItem('relia-voice');
+      if (stored !== null) this.enabled = stored === 'true';
+    } catch {}
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      this.loadVoices();
+      if (speechSynthesis.onvoiceschanged !== undefined) {
+        speechSynthesis.onvoiceschanged = () => this.loadVoices();
+      }
+    }
+  }
+  loadVoices() {
+    if (!('speechSynthesis' in window)) return;
+    const voices = speechSynthesis.getVoices();
+    this.voice = voices.find(v => v.lang.startsWith('fr') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Premium'))) ||
+                 voices.find(v => v.lang.startsWith('fr')) || null;
+  }
+  speak(textToSpeak, { onEnd = () => {} } = {}) {
+    if (!this.enabled || !('speechSynthesis' in window) || !textToSpeak) {
+      onEnd();
+      return;
+    }
+    this.stop();
+    const cleanText = textToSpeak
+      .replace(/https?:\/\/\S+/g, '')
+      .replace(/[↗◈◷⌁▣]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!cleanText) { onEnd(); return; }
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    if (this.voice) utterance.voice = this.voice;
+    utterance.lang = this.voice?.lang || 'fr-FR';
+    utterance.rate = this.rate;
+    utterance.pitch = 1.0;
+
+    utterance.onstart = () => {
+      this.speaking = true;
+      document.body.classList.add('narrator-speaking');
+    };
+    utterance.onend = () => {
+      this.speaking = false;
+      document.body.classList.remove('narrator-speaking');
+      onEnd();
+    };
+    utterance.onerror = () => {
+      this.speaking = false;
+      document.body.classList.remove('narrator-speaking');
+      onEnd();
+    };
+
+    try {
+      speechSynthesis.speak(utterance);
+    } catch {
+      this.speaking = false;
+      document.body.classList.remove('narrator-speaking');
+      onEnd();
+    }
+  }
+  stop() {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try { speechSynthesis.cancel(); } catch {}
+    }
+    this.speaking = false;
+    document.body.classList.remove('narrator-speaking');
+  }
+  toggle() {
+    this.enabled = !this.enabled;
+    if (!this.enabled) this.stop();
+    try { localStorage.setItem('relia-voice', String(this.enabled)); } catch {}
+    return this.enabled;
+  }
+}
+
+const sound = new SoundEngine();
+const voice = new VoiceNarrator();
+
+/* ==================== INTERACTIVE STORY MODE (PLAY) ==================== */
+const story = {
+  active: false,
+  playing: false,
+  timer: null,
+  index: 0,
+  steps: [],
+  entity: null,
+};
+
+function launchEntityStory(entity) {
+  if (!entity) return;
+  const all = buildTimeline(entity.id, [...state.graph.edges.values()], state.graph.nodes);
+  const steps = [];
+  if (all.dated.length > 0) {
+    for (const step of all.dated) {
+      steps.push({
+        id: step.id,
+        year: step.when ? String(step.when.anchor.year).replace('-', '−') : 'Repère',
+        dateDisplay: step.when?.display || '',
+        title: `${entity.label} & ${step.other?.label || step.otherId}`,
+        desc: `${step.edge.label} · ${step.edge.classification || 'relation documentée'}${step.when ? ` (${step.when.display})` : ''}`,
+        edge: step.edge,
+        otherId: step.otherId,
+        other: step.other,
+      });
+    }
+  } else {
+    const edges = visibleEdges().filter(e => e.from === entity.id || e.to === entity.id);
+    for (const edge of edges) {
+      const otherId = edge.from === entity.id ? edge.to : edge.from;
+      const other = state.graph.nodes.get(otherId);
+      steps.push({
+        id: edge.id,
+        year: 'Lien',
+        dateDisplay: edgeDates(edge),
+        title: `${entity.label} & ${other?.label || otherId}`,
+        desc: `${edge.label} · ${edge.classification || 'relation consultée'}`,
+        edge,
+        otherId,
+        other,
+      });
+    }
+  }
+  if (!steps.length) {
+    status('Aucune relation consultable à explorer pour cette identité.');
+    return;
+  }
+  startStory(steps, { title: `Récit chronologique · ${entity.label}`, entity });
+}
+
+function launchPathStory(path) {
+  if (!path || !path.edges.length) return;
+  const steps = [];
+  path.nodes.forEach((id, idx) => {
+    const edge = path.edges[idx];
+    if (!edge) return;
+    const from = state.graph.nodes.get(id);
+    const nextId = path.nodes[idx + 1];
+    const to = state.graph.nodes.get(nextId);
+    const dateStr = edgeDates(edge);
+    const year = edge.dates?.P585?.[0]?.display || edge.dates?.P580?.[0]?.display || `Étape ${idx + 1}`;
+    steps.push({
+      id: edge.id,
+      year: String(year).replace('-', '−'),
+      dateDisplay: dateStr,
+      title: `${from?.label || id} → ${to?.label || nextId}`,
+      desc: `${edge.label} · ${edge.classification || 'chemin documenté'} (${dateStr})`,
+      edge,
+      otherId: nextId,
+      other: to,
+    });
+  });
+  startStory(steps, { title: 'Parcours documenté', entity: state.pair.from });
+}
+
+function startStory(steps, { title, entity } = {}) {
+  stopStory();
+  story.active = true;
+  story.steps = steps;
+  story.index = 0;
+  story.entity = entity;
+  $('story-player-type').textContent = title || 'RÉCIT INTERACTIF';
+  $('story-player').hidden = false;
+  goToStoryStep(0);
+}
+
+function goToStoryStep(index) {
+  if (!story.active || !story.steps.length) return;
+  story.index = Math.max(0, Math.min(index, story.steps.length - 1));
+  const step = story.steps[story.index];
+  $('story-player-counter').textContent = `Étape ${story.index + 1} sur ${story.steps.length}`;
+  const pct = Math.round(((story.index + 1) / story.steps.length) * 100);
+  $('story-player-progress').style.width = `${pct}%`;
+  $('story-player-year').textContent = step.year;
+  $('story-player-title').textContent = step.title;
+  $('story-player-desc').textContent = step.desc;
+  $('story-prev').disabled = story.index === 0;
+  $('story-next').disabled = story.index === story.steps.length - 1;
+
+  view.highlightStep(step.edge);
+  if (step.otherId) view.focus(step.otherId);
+  focusTimelineStep(step.edge.id);
+  status(`Récit : ${step.title} (${step.year})`);
+
+  sound.playChime(500 + (story.index % 4) * 45);
+
+  // Vocal audio narration for this step
+  const speechText = `${step.year}. ${step.title}. ${step.desc}`;
+  voice.speak(speechText, {
+    onEnd: () => {
+      if (story.playing) {
+        clearTimeout(story.timer);
+        story.timer = setTimeout(() => {
+          if (story.index < story.steps.length - 1) {
+            nextStoryStep();
+          } else {
+            pauseStory();
+            status('Fin du récit documentaire. Explorez librement la constellation.');
+          }
+        }, 1400);
+      }
+    }
+  });
+}
+
+function nextStoryStep() {
+  if (story.index < story.steps.length - 1) {
+    goToStoryStep(story.index + 1);
+  } else {
+    pauseStory();
+    status('Fin du récit documentaire. Explorez librement la constellation.');
+  }
+}
+
+function prevStoryStep() {
+  if (story.index > 0) goToStoryStep(story.index - 1);
+}
+
+function playStory() {
+  story.playing = true;
+  $('story-play-label').textContent = 'Pause';
+  $('story-play').querySelector('.play-icon').textContent = '❚❚';
+  sound.playTick();
+  // Fallback timer if vocal narration is disabled or unavailable
+  if (!voice.enabled || !('speechSynthesis' in window)) {
+    clearInterval(story.timer);
+    story.timer = setInterval(() => {
+      if (story.index < story.steps.length - 1) {
+        nextStoryStep();
+      } else {
+        pauseStory();
+      }
+    }, 4500);
+  }
+}
+
+function pauseStory() {
+  story.playing = false;
+  clearInterval(story.timer);
+  clearTimeout(story.timer);
+  story.timer = null;
+  $('story-play-label').textContent = 'Lecture auto';
+  $('story-play').querySelector('.play-icon').textContent = '▶';
+  voice.stop();
+}
+
+function toggleStoryPlay() {
+  if (story.playing) pauseStory();
+  else playStory();
+}
+
+function stopStory() {
+  pauseStory();
+  voice.stop();
+  story.active = false;
+  story.steps = [];
+  $('story-player').hidden = true;
+  clearTimelineStep({ render: true });
+}
+
+/* ==================== MEDIA LIGHTBOX MODAL ==================== */
+function openLightbox(src, alt, title, caption, linkUrl) {
+  $('lightbox-image').src = src;
+  $('lightbox-image').alt = alt || '';
+  $('lightbox-title').textContent = title || 'Document d’archive';
+  $('lightbox-caption').textContent = caption || 'Image issue de Wikimedia Commons';
+  $('lightbox-link').href = linkUrl || '#';
+  $('lightbox-link').hidden = !linkUrl;
+  $('media-lightbox').hidden = false;
+}
+function closeLightbox() {
+  $('media-lightbox').hidden = true;
+  $('lightbox-image').src = '';
+}
+
 function renderEntity(id, { keepScroll = false } = {}) {
   const entity = state.graph.nodes.get(id); if (!entity) return;
   cancelBiography();
   if (state.timelineStep && (state.timelineEntity !== id || !visibleEdges().some(edge => edge.id === state.timelineStep))) clearTimelineStep({ render: false });
   const panel = $('entity-panel'), scroll = keepScroll ? panel.scrollTop : 0;
   const container = $('entity-content'); container.replaceChildren(); panel.hidden = false;
-  container.append(text('p', `${typeLabels[entity.type] || 'Entité'} · ${entity.fictional ? 'Démonstration fictive' : entity.id}`, 'entity-tag'));
-  container.append(text('h2', entity.label));
+
+  // Editorial Hero Header
+  const heroCard = text('div', '', 'editorial-hero');
+  if (entity.image) {
+    const avatarWrap = text('div', '', 'editorial-avatar-wrap');
+    const img = document.createElement('img');
+    img.src = entity.image;
+    img.alt = `Portrait de ${entity.label}`;
+    img.className = 'portrait';
+    img.loading = 'lazy';
+    img.referrerPolicy = 'no-referrer';
+    img.addEventListener('click', () => {
+      const fileUrl = `https://commons.wikimedia.org/wiki/File:${encodeURIComponent((entity.imageTitle || '').replaceAll(' ', '_'))}`;
+      openLightbox(entity.image, entity.label, `Portrait · ${entity.label}`, 'Archive photographique ou iconographique issue de Wikimedia Commons', fileUrl);
+    });
+    img.addEventListener('error', () => avatarWrap.remove());
+    avatarWrap.append(img);
+    heroCard.append(avatarWrap);
+  }
+  const heroDetails = text('div', '', 'editorial-hero-details');
+  heroDetails.append(text('p', `${typeLabels[entity.type] || 'Entité'} · ${entity.fictional ? 'Démonstration fictive' : entity.id}`, 'entity-tag'));
+  heroDetails.append(text('h2', entity.label));
+  if (entity.born || entity.died) {
+    const dates = `${entity.born?.display || '?'} — ${entity.died?.display || (entity.born ? 'présent' : '')}`;
+    heroDetails.append(text('span', dates, 'chip'));
+  }
+  const heroActions = text('div', '', 'editorial-actions');
+  const playBtn = button('▶ Lire l’histoire', () => launchEntityStory(entity), 'editorial-play-btn');
+  playBtn.setAttribute('title', 'Lancer le parcours documentaire dans la constellation');
+  const speakBtn = button('🔊 Écouter', () => {
+    if (voice.speaking) {
+      voice.stop();
+      speakBtn.textContent = '🔊 Écouter';
+      speakBtn.classList.remove('speaking');
+    } else {
+      sound.playChime(600);
+      const textToSpeak = `${entity.label}. ${entity.description || ''}. ${entity.born ? `Naissance en ${entity.born.display}.` : ''} ${entity.died ? `Décès en ${entity.died.display}.` : ''}`;
+      speakBtn.textContent = '❚❚ Arrêter';
+      speakBtn.classList.add('speaking');
+      voice.speak(textToSpeak, {
+        onEnd: () => {
+          speakBtn.textContent = '🔊 Écouter';
+          speakBtn.classList.remove('speaking');
+        }
+      });
+    }
+  }, 'editorial-audio-btn');
+  speakBtn.setAttribute('title', 'Écouter la présentation vocale de cette identité');
+  const centerBtn = button('◎ Centrer', () => view.focus(entity.id), 'editorial-center-btn');
+  heroActions.append(playBtn, speakBtn, centerBtn);
+  heroDetails.append(heroActions);
+  heroCard.append(heroDetails);
+  container.append(heroCard);
+
+  // Section 1: Présentation
   const presentation = documentSection('◈', 'Présentation', '', true);
   if (entity.typeBasis === 'relationship') presentation.body.append(text('p', 'Catégorie d’affichage suggérée par les propriétés culturelles ou une relation ; elle ne constitue pas une classification certaine.', 'fine-print'));
   presentation.body.append(text('p', entity.description || 'Description non disponible dans les sources consultées.', 'entity-description'));
@@ -380,10 +801,15 @@ function renderEntity(id, { keepScroll = false } = {}) {
   }
   container.append(presentation.element);
 
-  const chronology = documentSection('◷', 'Chronologie', `${buildTimeline(id, [...state.graph.edges.values()], state.graph.nodes).dated.length} repères`);
+  // Section 2: Chronologie
+  const timelineData = buildTimeline(id, [...state.graph.edges.values()], state.graph.nodes);
+  const chronology = documentSection('◷', 'Chronologie', `${timelineData.dated.length} repères`);
+  const playTimelineBtn = button('▶ Lancer le parcours chronologique', () => launchEntityStory(entity), 'subtle');
+  chronology.body.append(playTimelineBtn);
   renderTimelineDetails(chronology.body, entity);
   container.append(chronology.element);
 
+  // Section 3: Relations
   const edges = visibleEdges().filter(e => e.from === id || e.to === id);
   const neighbor = edge => state.graph.nodes.get(edge.from === id ? edge.to : edge.from);
   const relations = documentSection('⌁', 'Relations', `${edges.length}`);
@@ -391,7 +817,7 @@ function renderEntity(id, { keepScroll = false } = {}) {
   for (const edge of edges) {
     const other = neighbor(edge); if (!other) continue;
     const row = text('article', '', 'document-relation');
-    const identity = text('strong', other.label);
+    const identity = text('strong', `${other.label} (${typeLabels[other.type] || 'Entité'})`);
     const reason = text('p', `Pourquoi ce lien : ${edge.label} · ${edge.classification || 'relation consultée'} · ${edge.fictional ? 'démonstration fictive' : edge.evidence === 'referenced' ? 'référence déclarée dans Wikidata' : 'référence exploitable indisponible'}.`, 'document-relation-reason');
     row.append(identity, reason,
       button('Explorer dans la constellation ↗', () => selectNode(other.id), 'document-link'),
@@ -400,16 +826,50 @@ function renderEntity(id, { keepScroll = false } = {}) {
   }
   container.append(relations.element);
 
-  const media = documentSection('▣', 'Médias', entity.image ? '1' : '');
+  // Section 4: Médias
+  const mediaCount = (entity.image ? 1 : 0) + edges.filter(e => neighbor(e)?.image).length;
+  const media = documentSection('▣', 'Médias', mediaCount > 0 ? `${mediaCount}` : '');
   if (entity.image) {
-    const image = document.createElement('img'); image.src = entity.image; image.alt = `Portrait ou illustration de ${entity.label} (Wikimedia Commons)`;
-    image.referrerPolicy = 'no-referrer'; image.loading = 'lazy'; image.className = 'portrait'; image.addEventListener('error', () => image.remove()); media.body.append(image);
+    const card = text('article', '', 'media-card');
+    const frame = text('div', '', 'media-card-frame');
+    const img = document.createElement('img');
+    img.src = entity.image;
+    img.alt = `Portrait de ${entity.label}`;
+    img.loading = 'lazy';
+    img.referrerPolicy = 'no-referrer';
+    frame.append(img, text('span', 'Archive · Wikimedia', 'media-card-badge'));
+    frame.addEventListener('click', () => {
+      const fileUrl = `https://commons.wikimedia.org/wiki/File:${encodeURIComponent((entity.imageTitle || '').replaceAll(' ', '_'))}`;
+      openLightbox(entity.image, entity.label, `Portrait · ${entity.label}`, 'Archive photographique ou iconographique issue de Wikimedia Commons', fileUrl);
+    });
+    const meta = text('div', '', 'media-card-meta');
+    meta.append(text('strong', `Portrait / Reproduction de ${entity.label}`));
     const file = `https://commons.wikimedia.org/wiki/File:${encodeURIComponent((entity.imageTitle || '').replaceAll(' ', '_'))}`;
-    media.body.append(link('Crédit, auteur et licence de l’image · Wikimedia Commons ↗', file));
+    meta.append(link('Notice, auteur et licence · Wikimedia Commons ↗', file));
+    card.append(frame, meta);
+    media.body.append(card);
   }
-  if (!entity.image) media.body.append(text('p', 'Aucun média lié par l’identité consultée.', 'fine-print'));
+  const relatedWithImages = edges.map(neighbor).filter(n => n && n.image && n.id !== id);
+  if (relatedWithImages.length > 0) {
+    const relatedSection = text('div', '', 'document-subsection');
+    relatedSection.append(text('h4', 'Médias liés dans le réseau', 'field-label'));
+    for (const rel of relatedWithImages.slice(0, 3)) {
+      const relRow = text('div', '', 'document-relation');
+      relRow.append(text('strong', rel.label));
+      relRow.append(button('Voir l’entité et son média ↗', () => selectNode(rel.id), 'document-link'));
+      relatedSection.append(relRow);
+    }
+    media.body.append(relatedSection);
+  }
+  const futureCard = text('div', '', 'media-future-card');
+  futureCard.append(
+    text('h4', 'Musée documentaire interactif'),
+    text('p', 'À terme, RELIA accueillera les correspondances, manuscrits numérisés, captations sonores et archives audiovisuelles (BnF Gallica, Europeana, INA). Les médias affichés proviennent des fonds libres indexés.')
+  );
+  media.body.append(futureCard);
   container.append(media.element);
 
+  // Section 5: Sources
   const sources = documentSection('↗', 'Sources', `${edges.length}`);
   if (!entity.fictional) {
     sources.body.append(text('p', 'Les références documentent la provenance des assertions, pas leur véracité. RELIA ne vérifie pas automatiquement les faits dans les documents externes.', 'fine-print'));
@@ -554,6 +1014,9 @@ function renderPath(path, result = {}) {
   } else {
     container.append(text('h3', state.dataset === 'demo' ? 'Chemin fictif · Démonstration fictive' : 'Chemin avec références · graphe consulté'));
     container.append(text('p', `${path.edges.length} lien${path.edges.length > 1 ? 's' : ''} · ${Math.max(0, path.nodes.length - 2)} intermédiaire${path.nodes.length > 3 ? 's' : ''}${state.dataset !== 'demo' ? ' · Références de provenance, sans contrôle automatisé des faits externes' : ''}`, 'fine-print'));
+    if (path.edges.length > 0) {
+      container.append(button('▶ Parcourir le chemin en récit interactif', () => launchPathStory(path), 'primary wide'));
+    }
     path.nodes.forEach((id, index) => {
       const entity = state.graph.nodes.get(id), edge = path.edges[index];
       const row = text('div', `${index + 1}. ${entity?.label || id}`, 'path-step');
@@ -574,7 +1037,9 @@ async function searchPath() {
   const { from, to } = state.pair;
   if (!from || !to) { status('Sélectionnez explicitement deux identités de personnes dans les résultats de recherche.'); return; }
   if (state.dataset === 'demo') {
-    renderPath(shortestPath(state.graph, from.id, to.id, state.period, true)); status('Démonstration fictive : ce chemin n’est pas une relation réelle.'); return;
+    const p = shortestPath(state.graph, from.id, to.id, state.period, true);
+    if (p) sound.playSuccess();
+    renderPath(p); status('Démonstration fictive : ce chemin n’est pas une relation réelle.'); return;
   }
   const work = beginWork(), graph = state.graph;
   $('find-path').disabled = true; $('cancel-path').hidden = false; $('path-result').replaceChildren();
@@ -592,6 +1057,7 @@ async function searchPath() {
       incomplete: result.incomplete, bounded: result.bounded, expansions: result.expansions,
       queries: result.queries, depth: LIMITS.depth, roots: [from.id, to.id],
     };
+    if (result.path) sound.playSuccess();
     renderGraph(); renderPath(result.path, result);
     status(result.path ? 'Chemin référencé trouvé dans le graphe consulté. Consultez chaque assertion et ses références.' :
       result.incomplete || result.bounded ? 'Recherche incomplète ou arrivée à sa limite : aucun chemin trouvé dans les données consultées.' :
@@ -772,9 +1238,52 @@ $('close-help').addEventListener('click', () => { $('help').hidden = true; $('he
 $('show-accessible').addEventListener('click', () => { renderAccessible(); $('accessible-panel').hidden = !$('accessible-panel').hidden; if (!$('accessible-panel').hidden) $('close-accessible').focus(); });
 $('close-accessible').addEventListener('click', () => { $('accessible-panel').hidden = true; $('show-accessible').focus(); });
 $('reset-camera').addEventListener('click', () => { view.reset(); status('Vue réinitialisée.'); });
+$('timeline-play-btn')?.addEventListener('click', () => {
+  const entity = state.graph.nodes.get(state.selected);
+  if (entity) launchEntityStory(entity);
+  else if (state.graph.nodes.size > 0) {
+    const first = [...state.graph.nodes.values()][0];
+    selectNode(first.id);
+    launchEntityStory(first);
+  }
+});
+$('story-prev')?.addEventListener('click', prevStoryStep);
+$('story-next')?.addEventListener('click', nextStoryStep);
+$('story-play')?.addEventListener('click', toggleStoryPlay);
+$('story-voice-toggle')?.addEventListener('click', () => {
+  const active = voice.toggle();
+  updateVoiceUI();
+  status(active ? 'Voix de narration activée pour le récit.' : 'Voix de narration coupée.');
+});
+$('audio-toggle')?.addEventListener('click', () => {
+  const soundActive = sound.toggle();
+  const voiceActive = voice.toggle();
+  const icon = soundActive || voiceActive ? '🔊' : '🔇';
+  $('audio-toggle').textContent = icon;
+  $('audio-toggle').setAttribute('aria-label', soundActive ? 'Couper le son' : 'Activer le son');
+  $('audio-toggle').title = soundActive ? 'Couper le son et la voix' : 'Activer le son et la voix';
+  status(soundActive ? 'Audio et voix de narration activés.' : 'Audio et voix de narration coupés.');
+  updateVoiceUI();
+});
+
+function updateVoiceUI() {
+  if ($('story-voice-toggle')) {
+    $('story-voice-toggle').textContent = voice.enabled ? '🔊 Voix' : '🔇 Voix';
+    $('story-voice-toggle').classList.toggle('active', voice.enabled);
+  }
+  if ($('audio-toggle')) {
+    $('audio-toggle').textContent = sound.enabled || voice.enabled ? '🔊' : '🔇';
+  }
+}
+updateVoiceUI();
+
+$('close-story')?.addEventListener('click', stopStory);
+$('close-lightbox')?.addEventListener('click', closeLightbox);
+$('lightbox-backdrop')?.addEventListener('click', closeLightbox);
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') {
-    for (const id of ['help', 'entity-panel', 'accessible-panel']) $(id).hidden = true;
+    for (const id of ['help', 'entity-panel', 'accessible-panel', 'media-lightbox']) $(id).hidden = true;
+    if (story.active) stopStory();
     cancelBiography();
   }
 });
