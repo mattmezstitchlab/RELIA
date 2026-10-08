@@ -1,0 +1,22 @@
+{
+  "name": "relia",
+  "version": "1.0.0",
+  "description": "Exploration culturelle sourcée en trois dimensions",
+  "private": true,
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "node --test"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "dependencies": {
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "vite": "8.3.3"
+  }
+}
