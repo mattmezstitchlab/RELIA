@@ -1,10 +1,15 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { eligible } from './data.js';
+import { ICONS, TYPE_ICON } from './icons.js';
 
-export const COLORS = { person: '#6344d4', work: '#4338ca', place: '#0f766e', institution: '#1d4ed8', event: '#b45309', unknown: '#64748b' };
-const DARK_COLORS = { person: '#ecebf9', work: '#a081ff', place: '#58dfcc', institution: '#719fff', event: '#e7b969', unknown: '#8f899f' };
-const NETWORK_COLORS = { light: ['#2563eb', '#e11d48', '#7c3aed'], dark: ['#83bdff', '#ff9eb0', '#c6a2ff'] };
+export const COLORS = { person: '#AF52DE', work: '#32ADE6', place: '#30B0A0', institution: '#5E5CE6', event: '#FF6B9D', unknown: '#8E8E93' };
+const DARK_COLORS = { person: '#D9A6F5', work: '#7FD3FF', place: '#6EE7C8', institution: '#9AA0FF', event: '#FF9EC0', unknown: '#A1A1AA' };
+const NETWORK_COLORS = { light: ['#0A84FF', '#FF3B30', '#AF52DE'], dark: ['#64B5FF', '#FF8A80', '#D6A6FF'] };
+// Mise en évidence : bleu d’accent (jamais orange ni jaune).
+const FOCUS_COLOR = { light: '#0A84FF', dark: '#64B5FF' };
+const PATH_LINE = { light: '#0A84FF', dark: '#64B5FF' };
+const PATH_PARTICLE = { light: '#7CC4FF', dark: '#B3DCFF' };
 export const AVATAR_LIMIT = 12;
 export function selectAvatarCandidates(nodes, degree, { reduced = false, mobile = false, deviceMemory = 4, focused = null, pathNodes = new Set() } = {}) {
   if (reduced || deviceMemory < 2 || nodes.length > (mobile ? 14 : 36)) return [];
@@ -31,10 +36,10 @@ export function selectVisibleLabels(candidates, limit, gap = 10) {
   return new Set(accepted.map(candidate => candidate.id));
 }
 export class NetworkView {
-  constructor(container, { onSelect, onEdge, onHover, onUnavailable }) {
+  constructor(container, { onSelect, onPlay = () => {}, onEdge, onHover, onUnavailable }) {
     this.container = container;
     this.nodes = new Map(); this.edges = new Map(); this.path = new Set(); this.pathNodes = new Set(); this.roots = [];
-    this.onSelect = onSelect; this.onEdge = onEdge; this.onHover = onHover;
+    this.onSelect = onSelect; this.onPlay = onPlay; this.onEdge = onEdge; this.onHover = onHover;
     this.reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(46, 1, 0.1, 1200);
@@ -56,7 +61,7 @@ export class NetworkView {
     this.controls.enablePan = true; this.controls.minDistance = 38; this.controls.maxDistance = 420;
     this.controls.maxPolarAngle = Math.PI * 0.88;
     this.controls.addEventListener('change', () => { this.dirty = true; });
-    this.controls.addEventListener('start', () => this.cancelTransition());
+    this.controls.addEventListener('start', () => { this.cancelTransition(); this.follow = null; });
     this.geometry = new THREE.SphereGeometry(1, 14, 10);
     this.avatarGeometry = new THREE.CircleGeometry(1, 32);
     this.avatarLoader = new THREE.TextureLoader().setCrossOrigin('anonymous');
@@ -155,19 +160,36 @@ export class NetworkView {
         mesh.userData.id = data.id;
         const isDark = typeof document !== 'undefined' && document.body?.dataset.theme === 'dark';
         const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTexture, color, transparent: true, depthWrite: false, blending: isDark ? THREE.AdditiveBlending : THREE.NormalBlending, opacity: isDark ? 0.7 : 0.4 }));
-        halo.scale.setScalar(data.type === 'person' ? 14 : 11);
+        halo.scale.setScalar(data.type === 'person' ? 18 : 14);
         const angle = index * 2.39996;
         const radius = 38 + Math.sqrt(index + 1) * 15;
         const position = new THREE.Vector3(Math.cos(angle) * radius, Math.sin(angle) * radius * 0.64, Math.sin(index * 1.9) * 29);
-        const label = document.createElement('span'); label.textContent = data.label; label.className = 'graph-label'; label.dataset.type = data.type; this.labels.append(label);
+        const label = document.createElement('span'); label.className = 'graph-label'; label.dataset.type = data.type;
+        label.setAttribute('role', 'button'); label.tabIndex = 0; label.setAttribute('aria-label', data.label);
+        const glyph = document.createElement('i'); glyph.className = 'graph-label-glyph'; glyph.setAttribute('aria-hidden', 'true');
+        glyph.innerHTML = ICONS[TYPE_ICON[data.type]] || ICONS.dot;
+        const name = document.createElement('span'); name.className = 'graph-label-name'; name.textContent = data.label;
+        const play = document.createElement('i'); play.className = 'graph-label-play'; play.setAttribute('aria-hidden', 'true'); play.innerHTML = ICONS.play;
+        label.append(glyph, name, play); this.labels.append(label);
+        // Un clic sur le nom fait comme un clic sur le point ; le bouton lecture ouvre les vidéos de cette personne.
+        label.addEventListener('click', event => {
+          event.stopPropagation();
+          if (event.target.closest('.graph-label-play')) this.onPlay?.(data.id);
+          else this.onSelect?.(data.id);
+        });
+        label.addEventListener('keydown', event => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          this.onSelect?.(data.id);
+        });
         this.nodes.set(data.id, { id: data.id, data, mesh, halo, position, velocity: new THREE.Vector3(), label, born: performance.now() + index * 28, avatar: null, avatarURL: null, avatarFailedURL: null });
         this.scene.add(mesh, halo);
       } else { this.nodes.get(data.id).data = data; }
       const node = this.nodes.get(data.id);
       const relevance = Math.min(1.8, 1 + Math.log2(1 + (degree.get(data.id) || 0)) * 0.17);
-      node.mesh.scale.setScalar((data.type === 'person' ? 1.55 : 1.2) * relevance);
+      node.mesh.scale.setScalar((data.type === 'person' ? 2.05 : 1.6) * relevance);
       node.baseScale = node.mesh.scale.x;
-      node.halo.scale.setScalar((data.type === 'person' ? 14 : 11) * relevance);
+      node.halo.scale.setScalar((data.type === 'person' ? 18 : 14) * relevance);
       node.mesh.material.color.set(this.themeColors()[data.type] || this.themeColors().unknown);
       node.halo.material.color.set(this.themeColors()[data.type] || this.themeColors().unknown);
       index++;
@@ -321,6 +343,7 @@ export class NetworkView {
     if (animate && this.iterations < 400) { this.physics(); this.dirty = true; }
     if (!animate && !this.dirty) return;
     this.updateTransition(time);
+    this.updateFollow(time);
     this.controls.update();
     const focused = this.hovered || this.selected;
     const neighbors = new Set([focused]);
@@ -353,7 +376,7 @@ export class NetworkView {
       const theme = typeof document !== 'undefined' && document.body?.dataset.theme === 'dark' ? 'dark' : 'light';
       const networkColor = mask ? NETWORK_COLORS[theme][mask === 3 ? 2 : mask === 2 ? 1 : 0] : null;
       const color = highlighted || node.id === focused
-        ? (theme === 'dark' ? '#edc879' : '#d97706')
+        ? FOCUS_COLOR[theme]
         : rootSide >= 0 ? NETWORK_COLORS[theme][rootSide] : colors[node.data.type] || colors.unknown;
       node.mesh.material.color.set(color); node.halo.material.color.set(networkColor || color);
       node.mesh.material.opacity = opacity * (dim ? 0.18 : 0.96);
@@ -367,8 +390,8 @@ export class NetworkView {
       node.label.classList.toggle('graph-label--selected', node.id === focused);
       node.label.classList.toggle('graph-label--path', highlighted);
       node.label.classList.toggle('graph-label--neighbor', neighbors.has(node.id));
-      const width = Math.min(240, Math.max(62, node.data.label.length * (rootSide >= 0 ? 9.5 : 8) + (rootSide >= 0 ? 42 : 28)));
-      const height = rootSide >= 0 ? 38 : 32;
+      const width = Math.min(260, Math.max(96, node.data.label.length * (rootSide >= 0 ? 10 : 8.6) + (rootSide >= 0 ? 64 : 52) + (node.label.classList.contains('graph-label--video') ? 30 : 0)));
+      const height = rootSide >= 0 ? 42 : 36;
       if (screen.z <= 1 && screen.z >= -1 && x > -width && x < this.width && y > -height && y < this.height) {
         labelCandidates.push({
           id: node.id, left: x, top: y, right: x + width, bottom: y + height, x, y,
@@ -401,14 +424,14 @@ export class NetworkView {
       const mask = (this.networks.get(edge.data.from) || 0) | (this.networks.get(edge.data.to) || 0);
       const theme = typeof document !== 'undefined' && document.body?.dataset.theme === 'dark' ? 'dark' : 'light';
       const palette = NETWORK_COLORS[theme];
-      const lineColor = highlighted ? (theme === 'dark' ? '#edc879' : '#d97706') :
-        mask ? palette[mask === 3 ? 2 : mask === 2 ? 1 : 0] : theme === 'dark' ? '#69567f' : '#cbd5e1';
+      const lineColor = highlighted ? PATH_LINE[theme] :
+        mask ? palette[mask === 3 ? 2 : mask === 2 ? 1 : 0] : theme === 'dark' ? '#4A4F5E' : '#CBD2DC';
       edge.line.material.color.set(lineColor);
       const reveal = animate ? Math.max(0, Math.min(1, (time - Math.max(this.nodes.get(edge.data.from).born, this.nodes.get(edge.data.to).born)) / 850)) : 1;
       edge.line.material.opacity = reveal * (highlighted ? 0.96 : this.pathNodes.size ? 0.12 : near ? 0.85 : mask ? 0.48 : 0.32);
       edge.particle.visible = animate && reveal > 0.6 && (!this.pathNodes.size || highlighted);
       edge.particle.position.lerpVectors(from, to, (time / 6500 + edge.offset) % 1);
-      edge.particle.material.color.set(highlighted ? (theme === 'dark' ? '#ffe1a1' : '#f59e0b') : (theme === 'dark' ? '#b8a2e8' : '#818cf8'));
+      edge.particle.material.color.set(highlighted ? PATH_PARTICLE[theme] : (theme === 'dark' ? '#A8B0C8' : '#9AA3FF'));
     }
     this.renderer.render(this.scene, this.camera); this.dirty = false;
   }
@@ -443,6 +466,17 @@ export class NetworkView {
     };
     this.dirty = true;
   }
+  // Après un recentrage, la caméra accompagne le nœud pendant que la disposition se stabilise.
+  updateFollow(time) {
+    if (!this.follow || this.transition) return;
+    const node = this.nodes.get(this.follow.id);
+    if (!node || time > this.follow.until) { this.follow = null; return; }
+    const delta = node.position.clone().sub(this.controls.target);
+    if (delta.lengthSq() < 1e-6) return;
+    this.controls.target.add(delta);
+    this.camera.position.add(delta);
+    this.dirty = true;
+  }
   updateTransition(time) {
     if (!this.transition) return;
     const transition = this.transition;
@@ -453,11 +487,20 @@ export class NetworkView {
     this.dirty = true;
     if (progress === 1) this.cancelTransition();
   }
+  setVideoIds(ids) {
+    for (const node of this.nodes.values()) {
+      const withVideo = ids.has(node.id);
+      node.label.classList.toggle('graph-label--video', withVideo);
+      node.label.setAttribute('aria-label', withVideo ? `${node.data.label}, vidéos disponibles` : node.data.label);
+    }
+    this.dirty = true;
+  }
   focus(id) {
     if (!this.available || !this.nodes.has(id)) return;
     const destination = this.nodes.get(id).position;
     const offset = this.camera.position.clone().sub(this.controls.target).normalize().multiplyScalar(95);
     this.transitionTo(destination, destination.clone().add(offset));
+    this.follow = { id, until: performance.now() + 2600 };
   }
   reset() {
     if (!this.available) return;

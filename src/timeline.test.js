@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildTimeline, relationDates } from './timeline.js';
-import { dateValue, demoGraph, entityFromRaw, relationshipsFromRaw } from './data.js';
+import { dateValue, entityFromRaw, relationshipsFromRaw } from './data.js';
+import { demoGraph } from './fixtures-demo.js';
 
 const time = (value, precision = 9) => ({ datavalue: { value: { time: value, precision } } });
 const claim = (id, target, qualifiers = {}) => ({ id, rank: 'normal', mainsnak: { datavalue: { value: { id: target } } }, qualifiers, references: [] });
