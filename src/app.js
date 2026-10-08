@@ -1,6 +1,6 @@
 import './styles.css';
 import { COLORS, NetworkView } from './graph.js';
-import { LIMITS, PROPERTIES, bestLabel, demoGraph, emptyGraph, entityFromRaw, expandEntity, findRemotePath, getEntities, getWikipediaSummary, inPeriod, safeURL, searchEntities, shortestPath } from './data.js';
+import { LIMITS, PROPERTIES, bestLabel, demoGraph, emptyGraph, eligible, entityFromRaw, expandEntity, findRemotePath, getEntities, getWikipediaSummary, inPeriod, safeURL, searchEntities, shortestPath } from './data.js';
 import { getBnfEnrichment } from './bnf.js';
 import { compareSnapshots, createSnapshot, exportRegistry, validateSnapshot } from './discovery.js';
 
@@ -175,6 +175,17 @@ function invalidatePath() {
 }
 function renderPair() {
   $('connection-identities').textContent = `${state.pair.from ? `${state.pair.from.label} (${state.pair.from.id})` : 'Départ non sélectionné'} → ${state.pair.to ? `${state.pair.to.label} (${state.pair.to.id})` : 'Arrivée non sélectionnée'}${state.dataset === 'demo' ? ' · Démonstration fictive' : ''}`;
+  view.setRoots([state.pair.from?.id, state.pair.to?.id].filter(Boolean));
+  const key = $('network-key');
+  key.replaceChildren();
+  if (state.pair.from && state.pair.to) {
+    for (const [side, entity] of [['A', state.pair.from], ['B', state.pair.to]]) {
+      const item = text('span', '', `network-key-item network-key-${side.toLowerCase()}`);
+      item.append(text('b', side), text('span', entity.label));
+      key.append(item);
+    }
+    key.hidden = false;
+  } else key.hidden = true;
 }
 function chooseDataset(dataset) {
   abortWork(); cancelBiography(); state.dataset = dataset; state.graph = dataset === 'demo' ? demoGraph() : emptyGraph();
@@ -409,8 +420,23 @@ function renderAccessible() {
 function renderPath(path, result = {}) {
   const container = $('path-result'); container.replaceChildren(); state.path = path; view.highlightPath(path);
   if (!path) {
-    container.append(text('p', result.incomplete ? 'La recherche n’a pas pu être complétée : certaines sources sont indisponibles. Impossible de conclure à l’absence de chemin.' : 'Aucun chemin vérifié trouvé dans les sources consultées.', 'muted'));
-    if (result.incomplete) container.append(button('Réessayer la recherche', searchPath));
+    const incomplete = result.incomplete || result.bounded;
+    container.append(text('p', incomplete
+      ? 'La recherche est incomplète : aucun chemin documenté n’a été trouvé parmi les connexions consultées.'
+      : state.dataset === 'demo'
+        ? 'Dans la démonstration fictive, aucun chemin ne relie ces deux personnages.'
+        : 'Nous avons exploré les connexions disponibles, mais aucun chemin documenté ne relie encore ces deux personnes dans les données consultées.', 'path-summary'));
+    if (state.dataset !== 'demo') container.append(text('p', 'Cela ne prouve pas l’absence d’une relation réelle.', 'path-caveat'));
+    if (result.incomplete || result.bounded) container.append(button('Relancer la recherche', searchPath));
+    const eligibleEdges = [...state.graph.edges.values()].filter(edge => eligible(edge) && inPeriod(edge, state.period)).length;
+    const scope = text('details', '', 'scope-details');
+    scope.append(text('summary', 'Que couvre cette recherche ?'));
+    scope.append(text('p', `${state.graph.nodes.size} personnes et autres entités · ${state.graph.edges.size} relations consultées, dont ${eligibleEdges} utilisables pour les chemins.`, 'fine-print'));
+    if (result.expansions !== undefined) scope.append(text('p', `${result.expansions} explorations · ${result.queries} requêtes · jusqu’à ${result.depth || LIMITS.depth} niveaux par personne.`, 'fine-print'));
+    if (result.incomplete || state.graph.partial) scope.append(text('p', 'Certaines sources ou données sont indisponibles : une partie du réseau peut manquer.', 'fine-print'));
+    if (result.bounded || state.graph.capped) scope.append(text('p', 'Une limite de taille ou de recherche a été atteinte ; d’autres connexions n’ont pas pu être vérifiées.', 'fine-print'));
+    if (!result.incomplete && !result.bounded && !state.graph.partial && !state.graph.capped) scope.append(text('p', `La recherche reste limitée à ${LIMITS.depth} niveaux, ${LIMITS.expansions} explorations et ${LIMITS.queries} requêtes.`, 'fine-print'));
+    container.append(scope);
   } else {
     container.append(text('h3', state.dataset === 'demo' ? 'Chemin fictif · Démonstration fictive' : 'Chemin avec références · graphe consulté'));
     container.append(text('p', `${path.edges.length} lien${path.edges.length > 1 ? 's' : ''} · ${Math.max(0, path.nodes.length - 2)} intermédiaire${path.nodes.length > 3 ? 's' : ''}${state.dataset !== 'demo' ? ' · Références de provenance, sans contrôle automatisé des faits externes' : ''}`, 'fine-print'));
@@ -453,7 +479,10 @@ async function searchPath() {
       queries: result.queries, depth: LIMITS.depth, roots: [from.id, to.id],
     };
     renderGraph(); renderPath(result.path, result);
-    status(result.path ? 'Chemin référencé trouvé dans le graphe consulté. Consultez chaque assertion et ses références.' : result.incomplete ? 'Sources indisponibles : recherche incomplète. Réessayez.' : 'Aucun chemin vérifié trouvé dans les sources consultées.', result.incomplete ? searchPath : null);
+    status(result.path ? 'Chemin référencé trouvé dans le graphe consulté. Consultez chaque assertion et ses références.' :
+      result.incomplete || result.bounded ? 'Recherche incomplète ou arrivée à sa limite : aucun chemin trouvé dans les données consultées.' :
+        'Aucun chemin documenté trouvé dans les données consultées.',
+    result.incomplete || result.bounded ? searchPath : null);
   } catch (error) { if (current(work)) status(error.message, searchPath); }
   finally { if (current(work)) { state.controller = null; $('find-path').disabled = false; $('cancel-path').hidden = true; } }
 }
@@ -611,6 +640,17 @@ $('import-after').addEventListener('change', event => { importDiscoverySnapshot(
 $('export-before').addEventListener('click', () => downloadDiscoverySnapshot('before'));
 $('export-after').addEventListener('click', () => downloadDiscoverySnapshot('after'));
 $('export-discovery').addEventListener('click', downloadDiscoveryRegistry);
+$('theme-toggle').addEventListener('click', () => {
+  const theme = document.body.dataset.theme === 'dark' ? 'light' : 'dark';
+  document.body.dataset.theme = theme;
+  const dark = theme === 'dark';
+  $('theme-toggle').setAttribute('aria-label', dark ? 'Activer le mode clair' : 'Activer le mode sombre');
+  $('theme-toggle').title = dark ? 'Activer le mode clair' : 'Activer le mode sombre';
+  $('theme-toggle').textContent = dark ? '☀' : '◐';
+  document.querySelector('meta[name="theme-color"]').content = dark ? '#0b0b14' : '#f7f8fc';
+  view.setTheme();
+  try { localStorage.setItem('relia-theme', theme); } catch {}
+});
 $('workspace-collapse').addEventListener('click', () => { $('workspace').hidden = true; });
 $('close-panel').addEventListener('click', () => { $('entity-panel').hidden = true; cancelBiography(); });
 $('help-button').addEventListener('click', () => { $('help').hidden = !$('help').hidden; if (!$('help').hidden) $('close-help').focus(); });
@@ -630,5 +670,9 @@ window.addEventListener('pagehide', event => {
   if (!event.persisted) view.dispose();
 });
 compareDiscovery();
+try {
+  const theme = localStorage.getItem('relia-theme');
+  if (theme === 'dark') $('theme-toggle').click();
+} catch {}
 renderGraph();
 renderDiscovery();

@@ -3,16 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#0b0b14" />
+    <meta name="theme-color" content="#f7f8fc" />
     <meta name="description" content="RELIA explore les relations culturelles documentées dans Wikidata, avec leurs sources et leurs limites." />
     <title>RELIA — Tout est relié.</title>
   </head>
-  <body>
+  <body data-theme="light">
     <div id="graph" aria-label="Graphe relationnel interactif"></div>
     <div class="vignette" aria-hidden="true"></div>
     <header class="topbar">
       <a class="brand" href="./" aria-label="RELIA, accueil">RELIA<span></span></a>
-      <div class="top-actions"><span class="preview-label" id="dataset-label">Aperçu · Démonstration fictive</span><button id="dataset-switch" class="subtle">Explorer les données réelles ↗</button><button id="help-button" class="icon-button" aria-label="Aide et limites">?</button></div>
+      <div class="top-actions"><span class="preview-label" id="dataset-label">Aperçu · Démonstration fictive</span><button id="dataset-switch" class="subtle">Explorer les données réelles ↗</button><button id="theme-toggle" class="icon-button theme-toggle" type="button" aria-label="Activer le mode sombre" title="Activer le mode sombre">◐</button><button id="help-button" class="icon-button" aria-label="Aide et limites">?</button></div>
     </header>
     <main>
       <section class="hero" id="hero">
@@ -33,8 +33,7 @@
           <label class="field-label">PERSONNE D’ARRIVÉE</label><div id="to-search" class="search-component"></div>
           <div id="connection-identities" class="muted"></div>
           <button id="find-path" class="primary wide">Chercher un chemin</button><button id="cancel-path" class="subtle" hidden>Annuler la recherche</button>
-          <p class="fine-print">Plus court chemin dans le graphe consulté, pas dans tout Wikidata. Relations avec références uniquement ; aucun contrôle automatisé des faits dans les sources externes.</p>
-          <p class="fine-print">Limites : 4 niveaux d’exploration depuis chaque personne, 12 explorations, 40 requêtes, 100 entités. La longueur d’un chemin déjà documenté n’est pas limitée. La recherche entrante peut être indisponible.</p>
+          <details class="fine-details"><summary>Comment RELIA cherche un chemin</summary><p class="fine-print">RELIA cherche le plus court chemin dans le graphe consulté, pas dans tout Wikidata. Seules les relations avec référence exploitable peuvent former un chemin. La référence indique la provenance déclarée, sans vérification automatique du fait dans le document externe.</p><p class="fine-print">La recherche explore jusqu’à 4 niveaux depuis chaque personne, 12 expansions, 40 requêtes, 100 entités et 180 relations. La recherche entrante peut être indisponible. Un résultat limité ou incomplet ne permet pas de conclure à l’absence d’une relation réelle.</p></details>
           <div id="path-result"></div>
         </div>
         <div id="time-section" hidden>
@@ -76,10 +75,11 @@
       <section class="accessible-panel glass" id="accessible-panel" hidden><div class="workspace-heading"><h2>Réseau accessible</h2><button id="close-accessible" class="icon-button" aria-label="Fermer la liste">×</button></div><div id="accessible-list"></div></section>
     </main>
     <footer>
-      <div class="legend" aria-label="Types d’entités"><span><i class="person"></i>Personnes</span><span><i class="work"></i>Œuvres</span><span><i class="place"></i>Lieux</span><span><i class="institution"></i>Institutions</span><span><i class="event"></i>Événements</span></div>
-      <nav class="mode-nav glass" aria-label="Modes d’exploration"><button data-mode="explore" class="active"><span>◈</span>Explorer</button><button data-mode="connect"><span>⌁</span>Relier</button><button data-mode="time"><span>◷</span>Temps</button><button data-mode="sources"><span>▤</span>Sources</button><button data-mode="discovery"><span>✧</span>Découvrir</button></nav>
+      <div class="footer-context"><div class="legend" aria-label="Types d’entités"><span><i class="person" aria-hidden="true">●</i>Personnes</span><span><i class="work" aria-hidden="true">▰</i>Œuvres</span><span><i class="place" aria-hidden="true">◆</i>Lieux</span><span><i class="institution" aria-hidden="true">▤</i>Institutions</span><span><i class="event" aria-hidden="true">✦</i>Événements</span></div><div class="context-nav" aria-label="Outils de la constellation"><button data-mode="time" title="Filtrer par période"><span aria-hidden="true">◷</span>Temps</button><button data-mode="sources" title="Consulter les sources"><span aria-hidden="true">▤</span>Sources</button></div></div>
+      <nav class="mode-nav glass" aria-label="Modes d’exploration"><button data-mode="explore" class="active" aria-pressed="true"><span>◈</span>Explorer</button><button data-mode="connect" aria-pressed="false"><span>⌁</span>Relier</button><button data-mode="discovery" aria-pressed="false"><span>✧</span>Découvrir</button></nav>
       <div class="view-tools"><button id="show-accessible" class="icon-button" aria-label="Afficher la liste accessible">☷</button><button id="reset-camera" class="icon-button" aria-label="Réinitialiser la caméra">⤢</button><span>GLISSEZ POUR EXPLORER</span></div>
     </footer>
+    <div id="network-key" class="network-key" hidden aria-live="polite"></div>
     <script type="module" src="/src/app.js"></script>
   </body>
 </html>
