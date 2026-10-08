@@ -44,6 +44,22 @@
           <button id="apply-time" class="primary wide">Appliquer la période</button><button id="clear-time" class="subtle">Tout le temps</button><p id="time-status" class="fine-print"></p>
         </div>
         <div id="sources-section" hidden><h2>Les sources, pas les suppositions.</h2><p class="muted">Sélectionnez un lien pour sa provenance exacte.</p><div id="source-list"></div></div>
+        <div id="discovery-section" hidden>
+          <h2>RELIA Discovery</h2>
+          <p class="muted">Comparez des instantanés du même périmètre. Une nouveauté RELIA n’est pas une découverte historique inédite.</p>
+          <p class="fine-print">BnF est un enrichissement d’identité expérimental et ne fournit pas d’arêtes. Un état enrichi exige une source de relations autorisée, une provenance par assertion et des paramètres comparables.</p>
+          <div class="discovery-actions">
+            <button id="capture-before" class="subtle">Enregistrer le graphe actuel comme état A</button>
+            <button id="capture-after" class="subtle">Enregistrer le graphe actuel comme état B</button>
+            <label class="fine-print">Importer un instantané JSON pour l’état A<input id="import-before" type="file" accept="application/json,.json" /></label>
+            <label class="fine-print">Importer un instantané JSON pour l’état B<input id="import-after" type="file" accept="application/json,.json" /></label>
+            <button id="export-before" class="subtle" disabled>Télécharger l’état A</button>
+            <button id="export-after" class="subtle" disabled>Télécharger l’état B</button>
+            <button id="export-discovery" class="primary wide">Exporter le registre JSON</button>
+          </div>
+          <div id="discovery-status" class="fine-print" aria-live="polite">Sélectionnez deux identités exactes dans « Relier » puis consultez leur graphe.</div>
+          <div id="discovery-register"></div>
+        </div>
       </section>
       <aside id="entity-panel" class="entity-panel glass" aria-label="Détails de l’entité" hidden><button id="close-panel" class="icon-button close" aria-label="Fermer les détails">×</button><div id="entity-content"></div></aside>
       <section id="help" class="help-panel glass" hidden>
@@ -61,7 +77,7 @@
     </main>
     <footer>
       <div class="legend" aria-label="Types d’entités"><span><i class="person"></i>Personnes</span><span><i class="work"></i>Œuvres</span><span><i class="place"></i>Lieux</span><span><i class="institution"></i>Institutions</span><span><i class="event"></i>Événements</span></div>
-      <nav class="mode-nav glass" aria-label="Modes d’exploration"><button data-mode="explore" class="active"><span>◈</span>Explorer</button><button data-mode="connect"><span>⌁</span>Relier</button><button data-mode="time"><span>◷</span>Temps</button><button data-mode="sources"><span>▤</span>Sources</button></nav>
+      <nav class="mode-nav glass" aria-label="Modes d’exploration"><button data-mode="explore" class="active"><span>◈</span>Explorer</button><button data-mode="connect"><span>⌁</span>Relier</button><button data-mode="time"><span>◷</span>Temps</button><button data-mode="sources"><span>▤</span>Sources</button><button data-mode="discovery"><span>✧</span>Découvrir</button></nav>
       <div class="view-tools"><button id="show-accessible" class="icon-button" aria-label="Afficher la liste accessible">☷</button><button id="reset-camera" class="icon-button" aria-label="Réinitialiser la caméra">⤢</button><span>GLISSEZ POUR EXPLORER</span></div>
     </footer>
     <script type="module" src="/src/app.js"></script>
