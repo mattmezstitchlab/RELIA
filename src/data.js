@@ -1,16 +1,16 @@
 export const LIMITS = Object.freeze({ nodes: 100, edges: 180, expansions: 12, queries: 40, depth: 4 });
 export const PROPERTIES = Object.freeze({
-  P50: ['auteur ou autrice', 'work', 'person'], P57: ['réalisation', 'work', 'person'],
-  P86: ['composition', 'work', 'person'], P161: ['distribution', 'work', 'person'],
-  P170: ['création', 'work', 'person'], P175: ['interprétation', 'work', 'person'],
-  P108: ['employeur', 'person', 'institution'], P69: ['formation', 'person', 'institution'],
-  P463: ['membre de', 'person', 'institution'], P166: ['distinction', 'person', 'event'],
-  P800: ['œuvre notable', 'person', 'work'], P737: ['influence déclarée', 'person', 'person'],
-  P159: ['siège', 'institution', 'place'], P276: ['lieu', 'work', 'place'],
-  P131: ['localisation administrative', 'place', 'place'], P19: ['lieu de naissance', 'person', 'place'],
-  P20: ['lieu de décès', 'person', 'place'], P123: ['publication par', 'work', 'institution'],
-  P664: ['organisation', 'event', 'institution'], P1344: ['participation à', 'person', 'event'],
-  P793: ['événement significatif', 'person', 'event'],
+  P50: ['auteur ou autrice', 'work', 'person', 'création'], P57: ['réalisation', 'work', 'person', 'création'],
+  P86: ['composition', 'work', 'person', 'création'], P161: ['distribution', 'work', 'person', 'création'],
+  P170: ['création', 'work', 'person', 'création'], P175: ['interprétation', 'work', 'person', 'création'],
+  P108: ['employeur', 'person', 'institution', 'parcours professionnel'], P69: ['formation', 'person', 'institution', 'parcours professionnel'],
+  P463: ['membre de', 'person', 'institution', 'parcours professionnel'], P166: ['distinction', 'person', 'event', 'parcours professionnel'],
+  P800: ['œuvre notable', 'person', 'work', 'création'], P737: ['influence déclarée', 'person', 'person', 'influence'],
+  P159: ['siège', 'institution', 'place', 'contexte géographique'], P276: ['lieu', 'work', 'place', 'contexte géographique'],
+  P131: ['localisation administrative', 'place', 'place', 'contexte géographique'], P19: ['lieu de naissance', 'person', 'place', 'contexte géographique'],
+  P20: ['lieu de décès', 'person', 'place', 'contexte géographique'], P123: ['publication par', 'work', 'institution', 'édition'],
+  P664: ['organisation', 'event', 'institution', 'événement'], P1344: ['participation à', 'person', 'event', 'événement'],
+  P793: ['événement significatif', 'person', 'event', 'événement'],
 });
 export const PATH_PROPERTIES = new Set(Object.keys(PROPERTIES).filter(property => !['P19', 'P20', 'P131'].includes(property)));
 const API = 'https://www.wikidata.org/w/api.php';
@@ -149,8 +149,9 @@ export function relationshipsFromRaw(raw, retrievedAt = new Date().toISOString()
       }
       edges.push({
         id: claim.id || `${raw.id}:${property}:${target}`, from: raw.id, to: target, property,
-        label: definition[0], fromType: definition[1], toType: definition[2], rank: claim.rank || 'normal',
+        label: definition[0], fromType: definition[1], toType: definition[2], classification: definition[3], rank: claim.rank || 'normal',
         references: refs, dates, qualifiers: claim.qualifiers || {}, retrievedAt, fictional: false,
+        claimStatus: claim.rank === 'deprecated' ? 'deprecated' : refs.some(r => r.usable) ? 'assertion' : 'hypothesis',
         evidence: claim.rank === 'deprecated' ? 'deprecated' : refs.some(r => r.usable) ? 'referenced' : 'unverified',
       });
     }
@@ -189,7 +190,11 @@ export function shortestPath(graph, from, to, period = {}, allowFictional = fals
       while (previous.get(nodes.at(-1))) {
         const step = previous.get(nodes.at(-1)); edges.unshift(step.edge); nodes.push(step.parent);
       }
-      return { nodes: nodes.reverse(), edges };
+      nodes.reverse();
+      return {
+        nodes, edges,
+        directions: edges.map((edge, index) => edge.from === nodes[index] ? 'forward' : 'reverse'),
+      };
     }
     for (const { node, edge } of adjacency.get(current) || []) {
       if (!previous.has(node)) { previous.set(node, { parent: current, edge }); queue.push(node); }
