@@ -2,6 +2,7 @@ import './styles.css';
 import { COLORS, NetworkView } from './graph.js';
 import { LIMITS, PROPERTIES, bestLabel, demoGraph, emptyGraph, entityFromRaw, expandEntity, findRemotePath, getEntities, getWikipediaSummary, inPeriod, safeURL, searchEntities, shortestPath } from './data.js';
 import { getBnfEnrichment } from './bnf.js';
+import { compareSnapshots, createSnapshot, exportRegistry, validateSnapshot } from './discovery.js';
 
 const $ = id => document.getElementById(id);
 const typeLabels = { person: 'Personne', work: 'Œuvre', place: 'Lieu', institution: 'Institution', event: 'Événement', unknown: 'Type non déterminé' };
@@ -11,9 +12,26 @@ const claimStatusLabels = {
   hypothesis: 'Hypothèse — assertion sans référence exploitable, exclue des chemins',
   deprecated: 'Assertion obsolète — exclue des chemins',
 };
+const discoveryLabels = {
+  NEW_ENTITY: 'Nouvelle entité', NEW_RELATION: 'Nouvelle relation documentée', NEW_PATH: 'Nouveau chemin',
+  NEW_EVIDENCE: 'Nouvelle preuve', IDENTITY_RECONCILED: 'Identité réconciliée',
+  HYPOTHESIS: 'Hypothèse · exclue des chemins', CONTRADICTION: 'Donnée contradictoire',
+  INCOMPARABLE: 'Incomparable',
+};
+function restoreDiscovery() {
+  try {
+    const stored = JSON.parse(localStorage.getItem('relia-discovery-v1') || '{}');
+    return {
+      before: validateSnapshot(stored.before) ? stored.before : null,
+      after: validateSnapshot(stored.after) ? stored.after : null,
+      comparison: null,
+    };
+  } catch { return { before: null, after: null, comparison: null }; }
+}
 const state = {
   dataset: 'welcome', graph: demoGraph(), mode: 'explore', period: { from: null, to: null, undated: true },
   selected: null, pair: { from: null, to: null }, controller: null, version: 0, retry: null, path: null,
+  discoverySearch: null, discovery: restoreDiscovery(),
 };
 let biographyController = null, biographyVersion = 0;
 function cancelBiography() { biographyController?.abort(); biographyController = null; biographyVersion++; }
@@ -153,14 +171,14 @@ for (const side of ['from', 'to']) {
 }
 function invalidatePath() {
   if (state.controller) abortWork();
-  state.path = null; view.highlightPath(null); $('path-result').replaceChildren();
+  state.path = null; state.discoverySearch = null; view.highlightPath(null); $('path-result').replaceChildren();
 }
 function renderPair() {
   $('connection-identities').textContent = `${state.pair.from ? `${state.pair.from.label} (${state.pair.from.id})` : 'Départ non sélectionné'} → ${state.pair.to ? `${state.pair.to.label} (${state.pair.to.id})` : 'Arrivée non sélectionnée'}${state.dataset === 'demo' ? ' · Démonstration fictive' : ''}`;
 }
 function chooseDataset(dataset) {
   abortWork(); cancelBiography(); state.dataset = dataset; state.graph = dataset === 'demo' ? demoGraph() : emptyGraph();
-  state.selected = null; state.path = null; state.pair = { from: null, to: null };
+  state.selected = null; state.path = null; state.discoverySearch = null; state.pair = { from: null, to: null };
   view.setSelected(null);
   state.period = { from: null, to: null, undated: true };
   $('year-from').value = ''; $('year-to').value = ''; $('include-undated').checked = true;
@@ -178,10 +196,11 @@ function chooseDataset(dataset) {
 function openMode(mode) {
   if (state.dataset === 'welcome') chooseDataset('real');
   state.mode = mode; $('workspace').hidden = false;
-  for (const [name, id] of [['explore', 'explore-section'], ['connect', 'connect-section'], ['time', 'time-section'], ['sources', 'sources-section']]) $(id).hidden = mode !== name;
+  for (const [name, id] of [['explore', 'explore-section'], ['connect', 'connect-section'], ['time', 'time-section'], ['sources', 'sources-section'], ['discovery', 'discovery-section']]) $(id).hidden = mode !== name;
   for (const element of document.querySelectorAll('[data-mode]')) { element.classList.toggle('active', element.dataset.mode === mode); element.setAttribute('aria-pressed', element.dataset.mode === mode ? 'true' : 'false'); }
-  $('workspace-title').textContent = { explore: 'EXPLORER', connect: 'RELIER', time: 'TEMPS', sources: 'SOURCES' }[mode];
+  $('workspace-title').textContent = { explore: 'EXPLORER', connect: 'RELIER', time: 'TEMPS', sources: 'SOURCES', discovery: 'RELIA DISCOVERY' }[mode];
   if (mode === 'sources') renderSources();
+  if (mode === 'discovery') renderDiscovery();
   if (innerWidth <= 700) $('entity-panel').hidden = true;
 }
 function visibleEdges() { return [...state.graph.edges.values()].filter(edge => inPeriod(edge, state.period)); }
@@ -429,6 +448,10 @@ async function searchPath() {
       renderGraph(); status(`Consultation des sources · ${progress.expansions}/${LIMITS.expansions} explorations · ${progress.queries}/${LIMITS.queries} requêtes`);
     } });
     if (!current(work)) return;
+    state.discoverySearch = {
+      incomplete: result.incomplete, bounded: result.bounded, expansions: result.expansions,
+      queries: result.queries, depth: LIMITS.depth, roots: [from.id, to.id],
+    };
     renderGraph(); renderPath(result.path, result);
     status(result.path ? 'Chemin référencé trouvé dans le graphe consulté. Consultez chaque assertion et ses références.' : result.incomplete ? 'Sources indisponibles : recherche incomplète. Réessayez.' : 'Aucun chemin vérifié trouvé dans les sources consultées.', result.incomplete ? searchPath : null);
   } catch (error) { if (current(work)) status(error.message, searchPath); }
@@ -449,6 +472,129 @@ function applyTime(reset = false) {
   $('time-status').textContent = `${visibleEdges().length} relations visibles · ${unknown} sans date connue. Tout chemin précédent est effacé : relancez la recherche dans cette période.`;
   status(`Période : ${from ?? 'sans début'} → ${to ?? 'sans fin'} · Dates inconnues ${state.period.undated ? 'incluses' : 'exclues'}.`);
 }
+function persistDiscovery() {
+  try {
+    localStorage.setItem('relia-discovery-v1', JSON.stringify({
+      before: state.discovery.before, after: state.discovery.after,
+    }));
+    return true;
+  } catch { return false; }
+}
+function compareDiscovery() {
+  state.discovery.comparison = state.discovery.before && state.discovery.after
+    ? compareSnapshots(state.discovery.before, state.discovery.after) : null;
+}
+function setDiscoverySnapshot(slot, snapshot) {
+  state.discovery[slot] = snapshot;
+  compareDiscovery();
+  const persisted = persistDiscovery();
+  renderDiscovery();
+  if (!persisted) $('discovery-status').textContent = 'Snapshot conservé pour cette session, mais stockage local indisponible. Téléchargez le JSON pour le garder.';
+}
+function captureDiscoverySnapshot(slot) {
+  if (state.dataset !== 'real') {
+    $('discovery-status').textContent = 'La démonstration fictive ne peut pas produire de snapshots réels.';
+    return;
+  }
+  const { from, to } = state.pair;
+  if (!from || !to || !state.graph.nodes.size) {
+    $('discovery-status').textContent = 'Sélectionnez deux identités exactes dans « Relier », puis explorez leur réseau avant de créer un snapshot.';
+    return;
+  }
+  try {
+    const snapshot = createSnapshot({
+      graph: state.graph, roots: [from.id, to.id], sources: ['wikidata'], origin: 'real',
+      parameters: {
+        method: 'RELIA bounded graph capture v1',
+        propertyScope: Object.keys(PROPERTIES).sort(),
+        period: { ...state.period },
+        limits: { nodes: LIMITS.nodes, edges: LIMITS.edges, expansions: LIMITS.expansions, queries: LIMITS.queries, depth: LIMITS.depth },
+      },
+      paths: state.path ? [state.path] : [],
+      search: state.discoverySearch,
+      errors: state.graph.partial || state.discoverySearch?.incomplete
+        ? ['Source distante ou exploration incomplète; le détail de l’erreur n’est pas conservé par le collecteur actuel.'] : [],
+      limitations: ['Instantané du graphe Wikidata conservé en mémoire; ce n’est pas une extraction complète de Wikidata.'],
+    });
+    setDiscoverySnapshot(slot, snapshot);
+    $('discovery-status').textContent = `État ${slot === 'before' ? 'A' : 'B'} enregistré · ${snapshot.snapshotId}. Sources interrogées : ${snapshot.sources.join(', ')}.`;
+  } catch (error) {
+    $('discovery-status').textContent = `Snapshot non créé : ${error.message}`;
+  }
+}
+function importDiscoverySnapshot(slot, file) {
+  if (!file) return;
+  if (file.size > 5_000_000) {
+    $('discovery-status').textContent = 'Import refusé : la limite de fichier est de 5 Mo.';
+    return;
+  }
+  file.text().then(raw => {
+    const snapshot = JSON.parse(raw);
+    if (!validateSnapshot(snapshot)) throw new Error('Le fichier ne contient pas un snapshot RELIA Discovery valide ou son empreinte est incorrecte.');
+    setDiscoverySnapshot(slot, snapshot);
+    $('discovery-status').textContent = `État ${slot === 'before' ? 'A' : 'B'} importé · ${snapshot.snapshotId} · ${snapshot.origin === 'simulated' ? 'SIMULÉ' : 'réel déclaré'}.`;
+  }).catch(error => { $('discovery-status').textContent = `Import impossible : ${error.message}`; });
+}
+function downloadJSON(filename, content) {
+  const url = URL.createObjectURL(new Blob([content], { type: 'application/json;charset=utf-8' }));
+  const anchor = document.createElement('a'); anchor.href = url; anchor.download = filename; anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function renderDiscovery() {
+  const before = state.discovery.before, after = state.discovery.after;
+  $('export-before').disabled = !before; $('export-after').disabled = !after;
+  const container = $('discovery-register'); container.replaceChildren();
+  for (const [label, snapshot] of [['État A · Référence', before], ['État B · Enrichissement', after]]) {
+    if (!snapshot) continue;
+    const summary = text('section', '', 'discovery-entry');
+    summary.append(text('strong', `${label}${snapshot.origin === 'simulated' ? ' · SIMULÉ' : ' · réel déclaré'}`),
+      text('p', `${snapshot.snapshotId} · ${snapshot.identities.join(' → ')}`),
+      text('p', `Sources : ${snapshot.sources.join(', ')} · ${snapshot.nodes.length} entités · ${snapshot.edges.length} assertions · Récupéré : ${snapshot.retrievedAt}`),
+      text('p', `Collecte ${snapshot.collection.complete ? 'terminée dans le périmètre déclaré' : 'incomplète'} · ${snapshot.collection.expanded.length} identités explorées${snapshot.collection.errors.length ? ` · Erreurs : ${snapshot.collection.errors.join('; ')}` : ''}`));
+    if (snapshot.collection.limitations.length) summary.append(text('p', `Limites : ${snapshot.collection.limitations.join(' · ')}`));
+    container.append(summary);
+  }
+  const comparison = state.discovery.comparison;
+  if (!comparison) return;
+  const title = comparison.status === 'incomparable' ? 'Comparaison impossible' :
+    comparison.status === 'incomplete' ? 'Comparaison partielle · nouveautés à interpréter avec prudence' : 'Comparaison déterministe dans le périmètre capturé';
+  container.append(text('h3', title), text('p', `${comparison.entries.length} entrée(s) · ${before.snapshotId} → ${after.snapshotId}`, 'fine-print'));
+  if (!comparison.entries.length) container.append(text('p', 'Aucune différence admissible détectée. Ce résultat ne prouve pas l’absence d’autres relations.', 'muted'));
+  for (const entry of comparison.entries) {
+    const card = text('article', '', 'discovery-entry');
+    card.append(text('strong', `${discoveryLabels[entry.type] || entry.type} · ${entry.id}`),
+      text('p', entry.explanation),
+      text('p', `Entités exactes : ${entry.entities.join(' → ') || 'non précisées'}${entry.sources.length ? ` · Sources attribuées : ${entry.sources.join(', ')}` : ' · Adaptateur de provenance non attribué à cette assertion'}`));
+    const relation = entry.details.relation;
+    const assertions = entry.details.relations || (relation ? [relation.before, relation.after].filter(Boolean) : entry.path?.edges || []);
+    for (const edge of assertions) {
+      const from = state.graph.nodes.get(edge.from)?.label || edge.from;
+      const to = state.graph.nodes.get(edge.to)?.label || edge.to;
+      card.append(text('p', `${from} → ${edge.label || edge.property || 'relation'} (${edge.property || 'propriété inconnue'}) → ${to} · assertion ${edge.id}`));
+    }
+    for (const reference of entry.references) {
+      reference.urls?.forEach(url => card.append(link(url, url)));
+      reference.documents?.forEach(id => card.append(link(`Document cité · ${id} ↗`, `https://www.wikidata.org/wiki/${id}`)));
+    }
+    for (const identifier of entry.details.identifiers || []) {
+      card.append(text('p', `Identifiant externe réconcilié : ${identifier.namespace}:${identifier.value}${identifier.sourceId ? ` · Source : ${identifier.sourceId}` : ''}`));
+      if (identifier.url) card.append(link('Consulter l’identifiant externe ↗', identifier.url));
+      for (const evidence of identifier.references || []) evidence.urls?.forEach(url => card.append(link(url, url)));
+    }
+    if (entry.limitations.length) card.append(text('p', `Limites : ${entry.limitations.join(' · ')}`));
+    card.append(text('p', `Vérification humaine : ${entry.verificationStatus}`, 'fine-print'));
+    container.append(card);
+  }
+}
+function downloadDiscoverySnapshot(slot) {
+  const snapshot = state.discovery[slot];
+  if (snapshot) downloadJSON(`relia-discovery-${slot === 'before' ? 'A-reference' : 'B-enrichment'}.json`, `${JSON.stringify(snapshot, null, 2)}\n`);
+}
+function downloadDiscoveryRegistry() {
+  const snapshots = [state.discovery.before, state.discovery.after].filter(Boolean);
+  const comparisons = state.discovery.comparison ? [state.discovery.comparison] : [];
+  downloadJSON('relia-discovery-registry.json', exportRegistry({ snapshots, comparisons }));
+}
 document.querySelectorAll('[data-mode]').forEach(element => element.addEventListener('click', () => openMode(element.dataset.mode)));
 document.querySelectorAll('[data-example]').forEach(element => element.addEventListener('click', () => mainSearch.search(element.dataset.example)));
 $('start-real').addEventListener('click', () => { chooseDataset('real'); openMode('explore'); workspaceSearch.input.focus(); });
@@ -458,6 +604,13 @@ $('find-path').addEventListener('click', searchPath);
 $('cancel-path').addEventListener('click', () => { abortWork(); status('Recherche annulée. Les sources déjà consultées restent dans le graphe.'); renderGraph(); });
 $('apply-time').addEventListener('click', () => applyTime());
 $('clear-time').addEventListener('click', () => applyTime(true));
+$('capture-before').addEventListener('click', () => captureDiscoverySnapshot('before'));
+$('capture-after').addEventListener('click', () => captureDiscoverySnapshot('after'));
+$('import-before').addEventListener('change', event => { importDiscoverySnapshot('before', event.target.files[0]); event.target.value = ''; });
+$('import-after').addEventListener('change', event => { importDiscoverySnapshot('after', event.target.files[0]); event.target.value = ''; });
+$('export-before').addEventListener('click', () => downloadDiscoverySnapshot('before'));
+$('export-after').addEventListener('click', () => downloadDiscoverySnapshot('after'));
+$('export-discovery').addEventListener('click', downloadDiscoveryRegistry);
 $('workspace-collapse').addEventListener('click', () => { $('workspace').hidden = true; });
 $('close-panel').addEventListener('click', () => { $('entity-panel').hidden = true; cancelBiography(); });
 $('help-button').addEventListener('click', () => { $('help').hidden = !$('help').hidden; if (!$('help').hidden) $('close-help').focus(); });
@@ -476,4 +629,6 @@ window.addEventListener('pagehide', event => {
   for (const search of [mainSearch, workspaceSearch, ...Object.values(pairSearches)]) search.clearResults();
   if (!event.persisted) view.dispose();
 });
+compareDiscovery();
 renderGraph();
+renderDiscovery();
