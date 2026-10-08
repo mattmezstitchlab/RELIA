@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { eligible } from './data.js';
 
-export const COLORS = { person: '#7551b5', work: '#6d5bb7', place: '#087f78', institution: '#3f69a8', event: '#a75c12', unknown: '#687180' };
+export const COLORS = { person: '#6344d4', work: '#4338ca', place: '#0f766e', institution: '#1d4ed8', event: '#b45309', unknown: '#64748b' };
 const DARK_COLORS = { person: '#ecebf9', work: '#a081ff', place: '#58dfcc', institution: '#719fff', event: '#e7b969', unknown: '#8f899f' };
-const NETWORK_COLORS = { light: ['#2877c7', '#c44f68', '#8060b7'], dark: ['#83bdff', '#ff9eb0', '#c6a2ff'] };
+const NETWORK_COLORS = { light: ['#2563eb', '#e11d48', '#7c3aed'], dark: ['#83bdff', '#ff9eb0', '#c6a2ff'] };
 export const AVATAR_LIMIT = 12;
 export function selectAvatarCandidates(nodes, degree, { reduced = false, mobile = false, deviceMemory = 4, focused = null, pathNodes = new Set() } = {}) {
   if (reduced || deviceMemory < 2 || nodes.length > (mobile ? 14 : 36)) return [];
@@ -116,7 +116,13 @@ export class NetworkView {
       positions[i] = (random() - 0.5) * 550; positions[i + 1] = (random() - 0.5) * 370; positions[i + 2] = -80 - random() * 140;
     }
     const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    this.stars = new THREE.Points(geometry, new THREE.PointsMaterial({ color: '#7d789b', size: 0.35, transparent: true, opacity: 0.36 }));
+    const isDark = typeof document !== 'undefined' && document.body?.dataset.theme === 'dark';
+    this.stars = new THREE.Points(geometry, new THREE.PointsMaterial({
+      color: isDark ? '#7d789b' : '#94a3b8',
+      size: isDark ? 0.35 : 0.45,
+      transparent: true,
+      opacity: isDark ? 0.36 : 0.35,
+    }));
     this.scene.add(this.stars);
   }
   hit(event) {
@@ -147,7 +153,8 @@ export class NetworkView {
         const color = this.themeColors()[data.type] || this.themeColors().unknown;
         const mesh = new THREE.Mesh(this.geometry, new THREE.MeshBasicMaterial({ color, transparent: true }));
         mesh.userData.id = data.id;
-        const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTexture, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+        const isDark = typeof document !== 'undefined' && document.body?.dataset.theme === 'dark';
+        const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTexture, color, transparent: true, depthWrite: false, blending: isDark ? THREE.AdditiveBlending : THREE.NormalBlending, opacity: isDark ? 0.7 : 0.4 }));
         halo.scale.setScalar(data.type === 'person' ? 14 : 11);
         const angle = index * 2.39996;
         const radius = 38 + Math.sqrt(index + 1) * 15;
@@ -166,12 +173,13 @@ export class NetworkView {
       index++;
     }
     this.updateAvatars(degree);
+    const isDark = typeof document !== 'undefined' && document.body?.dataset.theme === 'dark';
     for (const data of visibleEdges) if (this.nodes.has(data.from) && this.nodes.has(data.to)) {
       if (!this.edges.has(data.id)) {
         const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
-        const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: '#766790', transparent: true, opacity: 0.25 }));
+        const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: isDark ? '#766790' : '#cbd5e1', transparent: true, opacity: isDark ? 0.25 : 0.4 }));
         line.userData.id = data.id;
-        const particle = new THREE.Mesh(this.geometry, new THREE.MeshBasicMaterial({ color: '#c6b2f8', transparent: true, opacity: 0.6 }));
+        const particle = new THREE.Mesh(this.geometry, new THREE.MeshBasicMaterial({ color: isDark ? '#c6b2f8' : '#818cf8', transparent: true, opacity: 0.75 }));
         particle.scale.setScalar(0.35);
         this.edges.set(data.id, { data, line, particle, offset: this.edges.size * 0.173 }); this.scene.add(line, particle);
       } else this.edges.get(data.id).data = data;
@@ -246,8 +254,19 @@ export class NetworkView {
     if (this.degree) this.updateAvatars(this.degree);
     this.dirty = true;
   }
-    themeColors() { return document.body.dataset.theme === 'dark' ? DARK_COLORS : COLORS; }
-    setTheme() { this.dirty = true; }
+    themeColors() { return (typeof document !== 'undefined' && document.body?.dataset.theme === 'dark') ? DARK_COLORS : COLORS; }
+    setTheme() {
+      const isDark = typeof document !== 'undefined' && document.body?.dataset.theme === 'dark';
+      if (this.stars) {
+        this.stars.material.color.set(isDark ? '#7d789b' : '#94a3b8');
+        this.stars.material.opacity = isDark ? 0.36 : 0.35;
+      }
+      for (const node of this.nodes.values()) {
+        node.halo.material.blending = isDark ? THREE.AdditiveBlending : THREE.NormalBlending;
+        node.halo.material.opacity = isDark ? 0.7 : 0.4;
+      }
+      this.dirty = true;
+    }
     setRoots(ids) {
       this.roots = ids.slice(0, 2);
       this.updateNetworks();
@@ -331,14 +350,14 @@ export class NetworkView {
       const dim = this.pathNodes.size ? !highlighted : focused && !neighbors.has(node.id);
       const rootSide = this.roots.indexOf(node.id);
       const mask = this.networks.get(node.id) || 0;
-      const theme = document.body.dataset.theme === 'dark' ? 'dark' : 'light';
+      const theme = typeof document !== 'undefined' && document.body?.dataset.theme === 'dark' ? 'dark' : 'light';
       const networkColor = mask ? NETWORK_COLORS[theme][mask === 3 ? 2 : mask === 2 ? 1 : 0] : null;
       const color = highlighted || node.id === focused
-        ? (theme === 'dark' ? '#edc879' : '#a76500')
+        ? (theme === 'dark' ? '#edc879' : '#d97706')
         : rootSide >= 0 ? NETWORK_COLORS[theme][rootSide] : colors[node.data.type] || colors.unknown;
       node.mesh.material.color.set(color); node.halo.material.color.set(networkColor || color);
       node.mesh.material.opacity = opacity * (dim ? 0.18 : 0.96);
-      node.halo.material.opacity = opacity * (dim ? 0.12 : 0.7);
+      node.halo.material.opacity = opacity * (dim ? 0.12 : (theme === 'dark' ? 0.7 : 0.38));
       if (node.avatar) node.avatar.material.opacity = opacity * (dim ? 0.16 : 0.98);
       const screen = node.mesh.position.clone().project(this.camera);
       const x = (screen.x + 1) / 2 * this.width + 12, y = (-screen.y + 1) / 2 * this.height - 12;
@@ -348,8 +367,8 @@ export class NetworkView {
       node.label.classList.toggle('graph-label--selected', node.id === focused);
       node.label.classList.toggle('graph-label--path', highlighted);
       node.label.classList.toggle('graph-label--neighbor', neighbors.has(node.id));
-      const width = Math.min(230, Math.max(58, node.data.label.length * (rootSide >= 0 ? 9 : 7.5) + (rootSide >= 0 ? 38 : 24)));
-      const height = rootSide >= 0 ? 34 : 28;
+      const width = Math.min(240, Math.max(62, node.data.label.length * (rootSide >= 0 ? 9.5 : 8) + (rootSide >= 0 ? 42 : 28)));
+      const height = rootSide >= 0 ? 38 : 32;
       if (screen.z <= 1 && screen.z >= -1 && x > -width && x < this.width && y > -height && y < this.height) {
         labelCandidates.push({
           id: node.id, left: x, top: y, right: x + width, bottom: y + height, x, y,
@@ -380,16 +399,16 @@ export class NetworkView {
       edge.line.geometry.computeBoundingSphere();
       const highlighted = this.path.has(edge.data.id), near = edge.data.from === focused || edge.data.to === focused;
       const mask = (this.networks.get(edge.data.from) || 0) | (this.networks.get(edge.data.to) || 0);
-      const theme = document.body.dataset.theme === 'dark' ? 'dark' : 'light';
+      const theme = typeof document !== 'undefined' && document.body?.dataset.theme === 'dark' ? 'dark' : 'light';
       const palette = NETWORK_COLORS[theme];
-      const lineColor = highlighted ? (theme === 'dark' ? '#edc879' : '#a76500') :
-        mask ? palette[mask === 3 ? 2 : mask === 2 ? 1 : 0] : theme === 'dark' ? '#69567f' : '#9aa3b2';
+      const lineColor = highlighted ? (theme === 'dark' ? '#edc879' : '#d97706') :
+        mask ? palette[mask === 3 ? 2 : mask === 2 ? 1 : 0] : theme === 'dark' ? '#69567f' : '#cbd5e1';
       edge.line.material.color.set(lineColor);
       const reveal = animate ? Math.max(0, Math.min(1, (time - Math.max(this.nodes.get(edge.data.from).born, this.nodes.get(edge.data.to).born)) / 850)) : 1;
-      edge.line.material.opacity = reveal * (highlighted ? 0.96 : this.pathNodes.size ? 0.12 : near ? 0.78 : mask ? 0.46 : 0.28);
+      edge.line.material.opacity = reveal * (highlighted ? 0.96 : this.pathNodes.size ? 0.12 : near ? 0.85 : mask ? 0.48 : 0.32);
       edge.particle.visible = animate && reveal > 0.6 && (!this.pathNodes.size || highlighted);
       edge.particle.position.lerpVectors(from, to, (time / 6500 + edge.offset) % 1);
-      edge.particle.material.color.set(highlighted ? '#ffe1a1' : '#b8a2e8');
+      edge.particle.material.color.set(highlighted ? (theme === 'dark' ? '#ffe1a1' : '#f59e0b') : (theme === 'dark' ? '#b8a2e8' : '#818cf8'));
     }
     this.renderer.render(this.scene, this.camera); this.dirty = false;
   }
