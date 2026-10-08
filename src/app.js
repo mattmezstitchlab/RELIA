@@ -219,6 +219,7 @@ function openMode(mode) {
 function visibleEdges() { return [...state.graph.edges.values()].filter(edge => inPeriod(edge, state.period)); }
 function renderGraph() {
   view.setData(state.graph, visibleEdges()); renderAccessible();
+  renderTimelineRail();
   if (state.mode === 'sources') renderSources();
 }
 async function selectReal(id) {
@@ -362,95 +363,140 @@ function renderEntity(id, { keepScroll = false } = {}) {
   const panel = $('entity-panel'), scroll = keepScroll ? panel.scrollTop : 0;
   const container = $('entity-content'); container.replaceChildren(); panel.hidden = false;
   container.append(text('p', `${typeLabels[entity.type] || 'Entité'} · ${entity.fictional ? 'Démonstration fictive' : entity.id}`, 'entity-tag'));
-  if (entity.typeBasis === 'relationship') container.append(text('p', 'Catégorie d’affichage suggérée par les propriétés culturelles ou une relation ; elle ne constitue pas une classification certaine.', 'fine-print'));
-  if (entity.image) {
-    const image = document.createElement('img'); image.src = entity.image; image.alt = `Portrait ou illustration de ${entity.label} (Wikimedia Commons)`;
-    image.referrerPolicy = 'no-referrer'; image.loading = 'lazy'; image.className = 'portrait'; image.addEventListener('error', () => image.remove()); container.append(image);
-    const file = `https://commons.wikimedia.org/wiki/File:${encodeURIComponent((entity.imageTitle || '').replaceAll(' ', '_'))}`;
-    container.append(link('Crédit, auteur et licence de l’image · Wikimedia Commons ↗', file));
-  }
-  container.append(text('h2', entity.label), text('p', entity.description || 'Description non disponible dans les sources consultées.', 'entity-description'));
-  loadBiography(entity, container);
-  if (entity.bnfIdentifier) container.append(text('p', `Identifiant d’autorité BnF porté par Wikidata (P268) : ${entity.bnfIdentifier}`, 'fine-print'));
-  loadBnfDetails(entity, container);
+  container.append(text('h2', entity.label));
+  const presentation = documentSection('◈', 'Présentation', '', true);
+  if (entity.typeBasis === 'relationship') presentation.body.append(text('p', 'Catégorie d’affichage suggérée par les propriétés culturelles ou une relation ; elle ne constitue pas une classification certaine.', 'fine-print'));
+  presentation.body.append(text('p', entity.description || 'Description non disponible dans les sources consultées.', 'entity-description'));
   const info = text('div', '', 'entity-info');
   if (entity.born) info.append(text('span', `Naissance : ${entity.born.display}`, 'chip'));
   if (entity.died) info.append(text('span', `Décès : ${entity.died.display}`, 'chip'));
   for (const occupation of entity.occupationLabels || []) info.append(text('span', occupation, 'chip'));
-  if (info.childNodes.length) container.append(info);
-  if (!entity.fictional) {
-    container.append(text('p', 'Description et données d’identité : Wikidata. Les informations manquantes ne sont pas complétées par supposition.', 'fine-print'));
-    container.append(link('Identité et historique Wikidata ↗', `https://www.wikidata.org/wiki/${id}`));
-    if (entity.wiki) container.append(link(`Article Wikipédia (${entity.wikiLang}) · sitelink exact ↗`, entity.wiki));
+  if (info.childNodes.length) presentation.body.append(info);
+  if (entity.wikiTitle && !entity.fictional) {
+    const biography = document.createElement('details'); biography.className = 'document-subsection';
+    biography.append(text('summary', 'Présentation détaillée · Wikipédia'));
+    const biographyContent = text('div', '', 'document-subsection-content'); biography.append(biographyContent);
+    presentation.body.append(biography); loadBiography(entity, biographyContent);
   }
+  container.append(presentation.element);
+
+  const chronology = documentSection('◷', 'Chronologie', `${buildTimeline(id, [...state.graph.edges.values()], state.graph.nodes).dated.length} repères`);
+  renderTimelineDetails(chronology.body, entity);
+  container.append(chronology.element);
+
   const edges = visibleEdges().filter(e => e.from === id || e.to === id);
   const neighbor = edge => state.graph.nodes.get(edge.from === id ? edge.to : edge.from);
-  const group = (title, records) => {
-    if (!records.length) return;
-    container.append(text('h3', title));
-    for (const edge of records) {
-      const other = neighbor(edge); if (!other) continue;
-      const row = button('', () => selectNode(other.id), 'neighbor-button');
-      const dot = text('i', '', 'entity-color'); dot.style.background = COLORS[other.type]; dot.style.color = COLORS[other.type];
-      const label = text('span', other.label); label.append(text('small', `${edge.label} · ${edgeDates(edge)}${edge.fictional ? ' · Fictif' : edge.evidence !== 'referenced' ? ' · Non vérifié' : ' · Référencé'}`));
-      row.append(dot, label); container.append(row);
-    }
-  };
-  group('Œuvres liées', edges.filter(e => neighbor(e)?.type === 'work'));
-  group('Institutions', edges.filter(e => neighbor(e)?.type === 'institution'));
-  group('Autres connexions', edges.filter(e => !['work', 'institution'].includes(neighbor(e)?.type)));
-  if (!edges.length) container.append(text('p', 'Aucune relation culturelle disponible dans le graphe et la période consultés.', 'fine-print'));
-  renderTimeline(container, entity);
-  container.append(text('h3', 'Provenance des relations'));
-  for (const edge of edges) container.append(button(`${edge.label} · ${entity.fictional ? 'Démonstration fictive' : edge.property} ↗`, () => { showEdge(edge); if (innerWidth <= 700) $('entity-panel').hidden = true; }));
+  const relations = documentSection('⌁', 'Relations', `${edges.length}`);
+  if (!edges.length) relations.body.append(text('p', 'Aucune relation culturelle disponible dans le graphe et la période consultés.', 'fine-print'));
+  for (const edge of edges) {
+    const other = neighbor(edge); if (!other) continue;
+    const row = text('article', '', 'document-relation');
+    const identity = text('strong', other.label);
+    const reason = text('p', `Pourquoi ce lien : ${edge.label} · ${edge.classification || 'relation consultée'} · ${edge.fictional ? 'démonstration fictive' : edge.evidence === 'referenced' ? 'référence déclarée dans Wikidata' : 'référence exploitable indisponible'}.`, 'document-relation-reason');
+    row.append(identity, reason,
+      button('Explorer dans la constellation ↗', () => selectNode(other.id), 'document-link'),
+      button('Consulter la source ↗', () => showEdge(edge), 'document-link'));
+    relations.body.append(row);
+  }
+  container.append(relations.element);
+
+  const media = documentSection('▣', 'Médias', entity.image ? '1' : '');
+  if (entity.image) {
+    const image = document.createElement('img'); image.src = entity.image; image.alt = `Portrait ou illustration de ${entity.label} (Wikimedia Commons)`;
+    image.referrerPolicy = 'no-referrer'; image.loading = 'lazy'; image.className = 'portrait'; image.addEventListener('error', () => image.remove()); media.body.append(image);
+    const file = `https://commons.wikimedia.org/wiki/File:${encodeURIComponent((entity.imageTitle || '').replaceAll(' ', '_'))}`;
+    media.body.append(link('Crédit, auteur et licence de l’image · Wikimedia Commons ↗', file));
+  }
+  if (!entity.image) media.body.append(text('p', 'Aucun média lié par l’identité consultée.', 'fine-print'));
+  container.append(media.element);
+
+  const sources = documentSection('↗', 'Sources', `${edges.length}`);
+  if (!entity.fictional) {
+    sources.body.append(text('p', 'Les références documentent la provenance des assertions, pas leur véracité. RELIA ne vérifie pas automatiquement les faits dans les documents externes.', 'fine-print'));
+    sources.body.append(link('Identité et historique Wikidata ↗', `https://www.wikidata.org/wiki/${id}`));
+    if (entity.wiki) sources.body.append(link(`Article Wikipédia (${entity.wikiLang}) · sitelink exact ↗`, entity.wiki));
+  }
+  if (entity.bnfIdentifier) sources.body.append(text('p', `Identifiant d’autorité BnF porté par Wikidata (P268) : ${entity.bnfIdentifier}`, 'fine-print'));
+  loadBnfDetails(entity, sources.body);
+  for (const edge of edges) {
+    const other = neighbor(edge);
+    sources.body.append(button(`${edge.label} · ${other?.label || edge.to} · ${entity.fictional ? 'Démonstration fictive' : edge.property} ↗`, () => showEdge(edge), 'document-link'));
+  }
+  container.append(sources.element);
   panel.scrollTop = scroll;
+  renderTimelineRail(entity);
 }
-function timelineStepButton(step, entity, selectable) {
+function documentSection(icon, title, count = '', open = false) {
+  const element = document.createElement('details'); element.className = 'document-section'; element.open = open;
+  const summary = text('summary', '', 'document-section-summary');
+  summary.append(text('span', icon, 'document-section-icon'), text('span', title));
+  if (count) summary.append(text('span', count, 'document-section-count'));
+  const body = text('div', '', 'document-section-body');
+  element.append(summary, body);
+  return { element, body };
+}
+function timelineStepButton(step, entity, selectable, compact = false) {
   const edge = step.edge, other = step.other;
   const active = state.timelineStep === edge.id;
-  const row = button('', () => (active ? clearTimelineStep({ announce: true }) : selectTimelineStep(edge, entity)), `timeline-step${active ? ' active' : ''}`);
+  const row = button('', () => (active ? clearTimelineStep({ announce: true }) : selectTimelineStep(edge, entity)), `timeline-step${compact ? ' timeline-rail-step' : ''}${active ? ' active' : ''}`);
   row.dataset.edge = edge.id;
   row.setAttribute('aria-pressed', active ? 'true' : 'false');
   row.disabled = !selectable;
+  if (compact) {
+    const year = text('span', String(step.when.anchor.year).replace('-', '−'), 'timeline-rail-year');
+    const title = text('span', edge.label, 'timeline-rail-title');
+    const neighbor = text('span', other?.label || step.otherId, 'timeline-rail-neighbor');
+    row.setAttribute('aria-label', `${step.when.display} · ${edge.label} : ${other?.label || step.otherId}${selectable ? '' : ' · masqué par le filtre de période'}`);
+    row.title = `${step.when.display} · ${edge.label} : ${other?.label || step.otherId}`;
+    row.append(year, title, neighbor);
+    return row;
+  }
   const dot = text('i', '', 'entity-color'); dot.style.background = COLORS[other?.type] || COLORS.unknown; dot.style.color = COLORS[other?.type] || COLORS.unknown;
   const body = text('span', '', 'timeline-step-body');
   if (step.when) body.append(text('b', step.when.display, 'timeline-date'));
   body.append(text('span', `${edge.label} · ${other?.label || step.otherId}`, 'timeline-label'));
-  body.append(text('small', `${edge.fictional ? 'Fictif' : edge.evidence === 'referenced' ? 'Référencé' : 'Non vérifié'}${selectable ? '' : ' · masqué par le filtre de période'}`));
+  body.append(text('small', `${edge.fictional ? 'Démonstration fictive' : edge.evidence === 'referenced' ? 'Référence déclarée' : 'Référence exploitable indisponible'}${selectable ? '' : ' · masqué par le filtre de période'}`));
   row.append(dot, body);
   return row;
 }
-function renderTimeline(container, entity) {
+function renderTimelineRail(entity = state.graph.nodes.get(state.selected)) {
+  const rail = $('timeline-rail'), list = $('timeline-steps');
+  list.replaceChildren();
+  const dated = entity ? buildTimeline(entity.id, [...state.graph.edges.values()], state.graph.nodes).dated : [];
+  if (!entity || !dated.length) {
+    rail.hidden = true; document.body.classList.remove('timeline-active'); return;
+  }
+  const visible = new Set(visibleEdges().map(edge => edge.id));
+  const hiddenCount = dated.filter(step => !visible.has(step.id)).length;
+  rail.hidden = false; document.body.classList.add('timeline-active');
+  $('timeline-entity').textContent = entity.label;
+  $('timeline-count').textContent = `${dated.length} repère${dated.length === 1 ? '' : 's'}`;
+  $('timeline-rail-note').textContent = hiddenCount ? `${hiddenCount} étape${hiddenCount === 1 ? '' : 's'} masquée${hiddenCount === 1 ? '' : 's'} par le filtre de période.` : 'Sélectionnez un repère pour le retrouver dans la constellation.';
+  for (const step of dated) {
+    const item = document.createElement('li');
+    item.append(timelineStepButton(step, entity, visible.has(step.id), true));
+    list.append(item);
+  }
+}
+function renderTimelineDetails(container, entity) {
   const visible = new Set(visibleEdges().map(edge => edge.id));
   const all = buildTimeline(entity.id, [...state.graph.edges.values()], state.graph.nodes);
-  const dated = all.dated.filter(step => visible.has(step.id));
-  const section = text('section', '', 'timeline'); section.setAttribute('aria-label', 'Parcours dans le temps');
-  section.append(text('h3', entity.fictional ? 'Chronologie fictive' : 'Chronologie des relations'));
-  if (all.biography.born || all.biography.died) {
-    const bio = text('p', '', 'timeline-biography');
-    bio.append(text('span', 'Repères biographiques, distincts des dates de relation : ', 'timeline-biography-title'));
-    bio.append(text('span', [all.biography.born && `naissance ${all.biography.born.display}`, all.biography.died && `décès ${all.biography.died.display}`].filter(Boolean).join(' · ')));
-    section.append(bio);
-  }
-  section.append(text('p', `${dated.length} étape${dated.length > 1 ? 's' : ''} datée${dated.length > 1 ? 's' : ''} par début, fin ou date ponctuelle de la relation${entity.fictional ? '' : ' (P580, P582, P585)'}. Les dates de publication des sources ne datent jamais une relation.`, 'fine-print'));
-  if (state.timelineStep) section.append(button('Réinitialiser la sélection', () => clearTimelineStep({ announce: true }), 'timeline-reset'));
-  const datedDetails = document.createElement('details'); datedDetails.className = 'timeline-group'; datedDetails.open = true;
-  datedDetails.append(text('summary', `Chronologie · ${dated.length}`));
-  const list = document.createElement('ol'); list.className = 'timeline-list';
-  for (const step of dated) { const item = document.createElement('li'); item.append(timelineStepButton(step, entity, true)); list.append(item); }
-  if (!dated.length) datedDetails.append(text('p', 'Aucune relation datée dans le graphe et la période consultés. Aucune date n’est déduite.', 'fine-print'));
-  else datedDetails.append(list);
+  container.append(text('p', `${all.dated.length} repère${all.dated.length === 1 ? '' : 's'} daté${all.dated.length === 1 ? '' : 's'} de relation. Sur desktop, la frise reste à portée de main ; sur petit écran, elle défile horizontalement. Seules les dates de relation sont utilisées (P580, P582, P585), jamais les dates de publication.`, 'fine-print'));
+  if (state.timelineStep) container.append(button('Réinitialiser la sélection', () => clearTimelineStep({ announce: true }), 'timeline-reset'));
   const undatedDetails = document.createElement('details'); undatedDetails.className = 'timeline-group';
   undatedDetails.open = all.undated.some(step => step.id === state.timelineStep);
-  undatedDetails.append(text('summary', `Date inconnue · ${all.undated.length}`));
-  if (!all.undated.length) undatedDetails.append(text('p', 'Toutes les relations consultées portent une date de relation.', 'fine-print'));
+  undatedDetails.append(text('summary', `Dates inconnues · ${all.undated.length}`));
+  if (!all.undated.length) undatedDetails.append(text('p', 'Aucune relation sans date exploitable dans le graphe consulté.', 'fine-print'));
   else {
     const undatedList = document.createElement('ul'); undatedList.className = 'timeline-list';
-    for (const step of all.undated) { const item = document.createElement('li'); item.append(timelineStepButton(step, entity, visible.has(step.id))); undatedList.append(item); }
-    undatedDetails.append(text('p', 'Relations sans date de relation exploitable, conservées et consultables.', 'fine-print'), undatedList);
+    for (const step of all.undated) {
+      const item = document.createElement('li');
+      item.append(timelineStepButton(step, entity, visible.has(step.id)));
+      undatedList.append(item);
+    }
+    undatedDetails.append(text('p', 'Ces relations restent consultables ; aucune date n’est déduite.', 'fine-print'), undatedList);
   }
-  section.append(datedDetails, undatedDetails);
-  container.append(section);
+  container.append(undatedDetails);
 }
 function selectTimelineStep(edge, entity) {
   state.timelineStep = edge.id; state.timelineEntity = entity.id;
@@ -462,7 +508,7 @@ function selectTimelineStep(edge, entity) {
   status(`Étape sélectionnée : ${edge.label} · ${otherLabel} · ${edgeDates(edge)}. La constellation met en évidence cette relation.`);
 }
 function focusTimelineStep(edgeId) {
-  [...$('entity-content').querySelectorAll('.timeline-step')].find(element => element.dataset.edge === edgeId)?.focus({ preventScroll: true });
+  [...document.querySelectorAll('#timeline-steps [data-edge], #entity-content .timeline-step')].find(element => element.dataset.edge === edgeId)?.focus({ preventScroll: true });
 }
 function clearTimelineStep({ render = true, announce = false } = {}) {
   if (!state.timelineStep) return;
