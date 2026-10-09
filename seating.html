@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#f5f6fa" />
+    <meta name="description" content="Plan de table de mariage : qui s'assoit où, et pourquoi. On déplace une personne, le reste se range." />
+    <meta name="robots" content="noindex" />
+    <title>Qui s'assoit où ? · RELIA</title>
+  </head>
+  <body data-theme="light">
+    <header class="bar">
+      <div class="wrap bar-in">
+        <span class="brand"><span class="brand-dot" aria-hidden="true"></span>Plan de table <small>en cours de test</small></span>
+        <span class="bar-spacer"></span>
+        <button id="btn-theme" class="round-button" type="button" title="Jour ou nuit" aria-label="Changer jour ou nuit"><span class="ico" data-icon="moon"></span></button>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section class="hero">
+        <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span><span id="hero-eyebrow">Je compte les personnes…</span></p>
+        <h1 id="hero-title">Qui s'assoit où<span class="no-break">,</span> <em>et pourquoi.</em></h1>
+        <p class="lead" id="hero-lead">Touchez une pastille. Posez-la sur une autre table. Le reste se range tout seul, et je vous dis si c'est impossible.</p>
+        <div class="statline" id="stats"></div>
+      </section>
+
+      <section class="section" id="graph-section" aria-labelledby="graph-title">
+        <div class="section-head">
+          <h2 id="graph-title">Le plan de la salle</h2>
+          <div class="segmented" id="overlay-picker" role="group" aria-label="Ce que je montre sur le plan"></div>
+        </div>
+        <svg id="plan-svg" class="plan2d" role="img" aria-labelledby="plan-svg-title plan-svg-desc"></svg>
+        <p class="fine-print" id="plan-svg-caption"></p>
+        <div class="edge-legend-row" id="overlay-legend"></div>
+      </section>
+
+      <section class="section" id="findings" aria-labelledby="findings-title">
+        <div class="section-head">
+          <h2 id="findings-title">Ce qu'il faut savoir</h2>
+        </div>
+        <div class="rows" id="findings-list"></div>
+      </section>
+
+      <section class="section" id="plan-section" aria-labelledby="plan-title">
+        <div class="section-head">
+          <h2 id="plan-title">Les tables</h2>
+          <span class="fine-print" id="plan-hint"></span>
+        </div>
+        <div class="tables" id="tables"></div>
+      </section>
+
+      <section class="section folds">
+        <details class="fold">
+          <summary><span>Qui doit rester séparé</span><span class="fold-count" id="count-sep"></span></summary>
+          <div class="rows" id="constraints"></div>
+        </details>
+        <details class="fold">
+          <summary><span>Questions à poser avant d'imprimer</span><span class="fold-count" id="count-q"></span></summary>
+          <div class="rows" id="questions"></div>
+        </details>
+        <details class="fold">
+          <summary><span>Ce que ce tableau ne sait pas faire</span><span class="fold-count" id="count-limits"></span></summary>
+          <ul class="list-plain" id="limits"></ul>
+        </details>
+      </section>
+
+      <footer>
+        <div class="toolstrip">
+          <button id="btn-save" class="pill" type="button"><span class="ico" data-icon="shield"></span><span>Garder ce plan</span></button>
+          <button id="btn-compare" class="pill ghost" type="button" disabled><span class="ico" data-icon="clock"></span><span>Voir ce qui a changé</span></button>
+          <button id="btn-print" class="pill ghost" type="button"><span class="ico" data-icon="photo"></span><span>Imprimer</span></button>
+          <button id="btn-csv" class="pill ghost" type="button"><span class="ico" data-icon="list"></span><span>Donner la liste au traiteur</span></button>
+          <button id="btn-scene" class="pill ghost" type="button" aria-pressed="false"><span class="ico" data-icon="graph"></span><span>Voir en volume</span></button>
+          <button id="btn-resolve" class="pill ghost" type="button"><span class="ico" data-icon="reset"></span><span>Tout ranger</span></button>
+          <button id="btn-json" class="pill ghost" type="button"><span class="ico" data-icon="doc"></span><span>Fichier complet</span></button>
+          <label class="check-row"><input id="opt-diet" type="checkbox" /><span>Mettre les régimes dans la liste du traiteur</span></label>
+        </div>
+        <div id="diff"></div>
+        <div class="card" id="scene-card" hidden>
+          <div class="scene" id="graph" role="img" aria-label="Vue en volume des mêmes personnes. Les tables et le plan donnent la même information.">
+            <div class="legend" id="legend"></div>
+            <div class="scene-tools">
+              <button id="btn-only-blocking" class="pill small ghost" type="button" aria-pressed="false">Qui doit être séparé</button>
+              <button id="btn-reset" class="round-button" type="button" aria-label="Reculer pour tout voir"><span class="ico" data-icon="target"></span></button>
+            </div>
+          </div>
+          <p class="fine-print" style="margin-top:9px" id="scene-caption"></p>
+        </div>
+        <p class="fine-print" style="margin-top:14px">Test sur 32 personnes imaginaires · <a href="./">retour à RELIA</a></p>
+      </footer>
+    </main>
+
+    <!-- La fiche d’une personne : un seul endroit où l’on déplace quelqu’un, au clavier comme au doigt. -->
+    <div id="detail" class="sheet-host" hidden></div>
+
+    <!-- Le bac de tables, pendant qu’une pastille est en l’air. Cible large, pouce compris. -->
+    <div id="dropdock" class="dropdock" hidden role="group" aria-label="Choisir la table">
+      <p class="dropdock-title" id="dropdock-title"></p>
+      <div class="dropdock-row" id="dropdock-row"></div>
+      <p class="dropdock-reason" id="dropdock-reason" hidden></p>
+    </div>
+
+    <div id="status" class="status" role="status" aria-live="polite" hidden><span id="status-text"></span></div>
+    <script type="module" src="/src/seating/app.js"></script>
+  </body>
+</html>
