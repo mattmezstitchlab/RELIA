@@ -24,6 +24,7 @@ export const ICONS = Object.freeze({
   help: outline('<circle cx="12" cy="12" r="8.6"/><path d="M9.6 9.6a2.5 2.5 0 1 1 4 2c-.9.6-1.6 1.1-1.6 2.3"/><path d="M12 16.9v.2"/>'),
   list: outline('<path d="M9 6.5h10.5M9 12h10.5M9 17.5h10.5"/><circle cx="4.8" cy="6.5" r=".9" fill="currentColor"/><circle cx="4.8" cy="12" r=".9" fill="currentColor"/><circle cx="4.8" cy="17.5" r=".9" fill="currentColor"/>'),
   clock: outline('<circle cx="12" cy="12" r="8.6"/><path d="M12 7.6V12l2.9 1.9"/>'),
+  edit: outline('<path d="M4.5 19.5l4.7-1 10-10a2.6 2.6 0 0 0-3.7-3.7l-10 10z"/><path d="M14.2 6.1l3.7 3.7M4.5 19.5h15"/>'),
   doc: outline('<path d="M7 3.8h6.8L18.5 8.5V19a1.7 1.7 0 0 1-1.7 1.7H7A1.7 1.7 0 0 1 5.3 19V5.5A1.7 1.7 0 0 1 7 3.8z"/><path d="M13.6 3.8v4.7h4.9M9 12.5h6M9 15.8h6"/>'),
   book: outline('<path d="M4.5 5.8c2.4-1.1 5-1 7.5.7 2.5-1.7 5.1-1.8 7.5-.7v12.2c-2.4-1.1-5-1-7.5.7-2.5-1.7-5.1-1.8-7.5-.7z"/><path d="M12 6.5v12.2"/>'),
   pin: outline('<path d="M12 20.6s6.2-5.3 6.2-10.3a6.2 6.2 0 1 0-12.4 0c0 5 6.2 10.3 6.2 10.3z"/><circle cx="12" cy="10.3" r="2.3"/>'),

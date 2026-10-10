@@ -70,6 +70,7 @@
             <h1 id="hero-title">Tout est <em>relié.</em></h1>
             <p class="lead">Tapez un nom. RELIA montre les liens autour de cette personne, avec la source de chaque lien.</p>
             <div id="examples" class="examples" aria-label="Exemples de recherche"></div>
+            <div id="documentary-entry"></div>
           </section>
           <ol class="steps">
             <li><span class="step-icon"><span class="ico" data-icon="search"></span></span><div><strong>Chercher</strong><p>Tapez un nom et choisissez l’identité exacte dans la liste.</p></div></li>
@@ -111,6 +112,7 @@
 
         <section id="view-story" class="view" hidden>
           <div class="story-progress" aria-hidden="true"><span id="story-progress-fill"></span></div>
+          <div id="story-standard">
           <div class="story-meta"><span id="story-counter" class="story-counter"></span><span id="story-kind" class="badge accent"></span></div>
           <article class="story-card" aria-live="polite">
             <p class="story-year"><span class="ico" data-icon="calendar"></span><span id="story-year"></span></p>
@@ -119,16 +121,20 @@
             <p id="story-date" class="fine-print"></p>
             <button id="story-source" class="pill small" type="button"><span class="ico" data-icon="doc"></span><span>Voir la source</span></button>
           </article>
-          <div class="story-controls">
+          </div>
+          <div id="documentary-body" hidden></div>
+          <div id="story-controls" class="story-controls">
             <button id="story-prev" class="round-button big" type="button" aria-label="Étape précédente"><span class="ico" data-icon="prev"></span></button>
             <button id="story-play" class="play-button" type="button"><span id="story-play-icon" class="ico" data-icon="play"></span><span id="story-play-label">Lecture</span></button>
-            <button id="story-next" class="round-button big" type="button" aria-label="Étape suivante"><span class="ico" data-icon="next"></span></button>
+            <button id="story-next" class="round-button big" type="button" aria-label="Étape suivante"><span class="ico" data-icon="next"></span><span id="story-skip-label" hidden>Passer<span class="story-skip-detail"> la séquence</span></span></button>
           </div>
-          <div class="story-foot">
+          <div id="story-foot" class="story-foot">
             <button id="story-voice-toggle" class="pill small" type="button"></button>
-            <p class="fine-print">Chaque étape renvoie à sa source. Les dates sont celles des relations, jamais des biographies.</p>
+            <p id="story-caveat" class="fine-print">Chaque étape renvoie à sa source. Les dates sont celles des relations, jamais des biographies.</p>
           </div>
         </section>
+
+        <section id="view-documentary-editor" class="view" hidden><div id="documentary-editor-body"></div></section>
 
         <section id="view-source" class="view" hidden><div id="source-body" class="stack"></div></section>
 

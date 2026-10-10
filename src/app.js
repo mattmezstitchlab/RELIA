@@ -16,6 +16,13 @@ import { matchLocalIdentities, verificationLabel } from './local-search.js';
 import { catalogFor, chronologyRows } from './catalog.js';
 import { isStale } from './provenance.js';
 import { datesOf } from './dates.js';
+import { findLocalIdentity } from './local-identities.js';
+import { MATT_MEZ_DOCUMENTARY } from './documentary/matt-mez.js';
+import { buildDocumentary, MAX_DRAFT_BYTES } from './documentary/model.js';
+import { DocumentaryDraftStore, exportNarration } from './documentary/storage.js';
+import { DocumentaryView } from './documentary/view.js';
+import { DocumentaryEditor } from './documentary/editor.js';
+import './documentary/documentary.css';
 
 const $ = id => document.getElementById(id);
 const DESKTOP = window.matchMedia('(min-width: 900px)');
@@ -34,7 +41,7 @@ const discoveryLabels = {
 };
 const VIEW_IDS = {
   home: 'view-home', results: 'view-results', identity: 'view-identity', local: 'view-local', relation: 'view-relation', story: 'view-story',
-  source: 'view-source', media: 'view-media', time: 'view-time', list: 'view-list', settings: 'view-settings',
+  documentaryEditor: 'view-documentary-editor', source: 'view-source', media: 'view-media', time: 'view-time', list: 'view-list', settings: 'view-settings',
   help: 'view-help', advanced: 'view-advanced',
 };
 const SUB_TITLES = { list: 'Liste accessible', settings: 'Réglages', help: 'Aide et limites', advanced: 'Analyse avancée', time: 'Période', source: 'Source', media: 'Image' };
@@ -68,7 +75,8 @@ const state = {
 };
 const nav = { stack: [] };
 const results = { open: false, slot: 'a', term: '', phase: 'idle', items: [], message: '' };
-const story = { active: false, playing: false, timer: null, index: 0, steps: [], title: '' };
+const story = { active: false, playing: false, timer: null, index: 0, steps: [], title: '', documentary: null };
+const documentarySession = { store: null, model: null, view: null, editor: null, editorId: null, importGeneration: 0 };
 const ui = {
   identityTab: 'liens', sourceEdge: null, media: null, detailController: null, loadingId: null, speakingId: null,
   rootKey: null, selectedId: undefined, viewKey: null, wasSub: false,
@@ -628,6 +636,7 @@ function openDetail(id) {
 /* ==================== NAVIGATION (une seule vue à la fois) ==================== */
 function resetNav() {
   stopStory({ render: false });
+  if (['#raconter/matt-mez-sax', '#chronologie/matt-mez-sax'].includes(window.location.hash)) routeHash('');
   ui.detailController?.abort();
   ui.detailController = null;
   ui.loadingId = null;
@@ -642,8 +651,19 @@ function pushView(name, title = '') {
 function popView() {
   const top = nav.stack.at(-1);
   if (!top) return;
-  if (top.name === 'story') stopStory({ render: false });
-  else nav.stack.pop();
+  if (top.name === 'documentaryEditor') {
+    if (!documentarySession.editor?.canClose()) return;
+    documentarySession.editor = null;
+    documentarySession.editorId = null;
+  }
+  if (top.name === 'story') {
+    const wasDocumentary = Boolean(story.documentary);
+    stopStory({ render: false });
+    if (wasDocumentary) routeHash('chronologie/matt-mez-sax');
+  } else {
+    nav.stack.pop();
+    if (top.name === 'local' && window.location.hash === '#chronologie/matt-mez-sax') routeHash('');
+  }
   render();
 }
 function openSubview(name, title = SUB_TITLES[name] || '') {
@@ -651,6 +671,7 @@ function openSubview(name, title = SUB_TITLES[name] || '') {
     popView();
     return;
   }
+  if (story.active) pauseStory();
   pushView(name, title);
 }
 function showEdge(edge) {
@@ -684,6 +705,7 @@ function render() {
   const active = results.open ? 'results' : top ? top.name : mode;
   const sub = !results.open && Boolean(top);
   for (const [name, id] of Object.entries(VIEW_IDS)) $(id).hidden = name !== active;
+  document.body.classList.toggle('documentary-open', active === 'documentaryEditor' || (active === 'story' && Boolean(story.documentary)));
   $('search-block').hidden = sub;
   $('subhead').hidden = !sub;
   $('sheet-title').textContent = sub ? (top.title || '') : '';
@@ -697,6 +719,7 @@ function render() {
     case 'results': renderResults(); break;
     case 'identity': renderIdentity(); break;
     case 'local': renderLocal(); break;
+    case 'documentaryEditor': renderDocumentaryEditor(); break;
     case 'relation': renderRelation(); break;
     case 'source': renderSource(); break;
     case 'media': renderMedia(); break;
@@ -721,6 +744,10 @@ function renderHome() {
   const examples = $('examples');
   examples.replaceChildren();
   for (const name of EXAMPLE_NAMES) examples.append(button(name, () => searchFromExample(name), 'example-chip'));
+  const entry = $('documentary-entry');
+  entry.replaceChildren();
+  const identity = findLocalIdentity(MATT_MEZ_DOCUMENTARY.identityId);
+  if (catalogFor(identity.id)) entry.append(documentaryEntry(identity));
 }
 
 /* ---- Fiche locale RELIA : identité déclarée, chaînes officielles, chronologie vidéo ---- */
@@ -732,6 +759,7 @@ function openLocalIdentity(identity) {
   ui.detailController = null;
   ui.loadingId = null;
   localView.identity = identity;
+  if (identity.id === MATT_MEZ_DOCUMENTARY.identityId) routeHash('chronologie/matt-mez-sax');
   nav.stack = [{ name: 'local', id: identity.id, title: identity.label }];
   ensureSheetOpen();
   render();
@@ -780,6 +808,8 @@ function channelsSection(identity) {
 function localVideoRow(row) {
   const { entry, video } = row;
   const item = el('li', 'local-video');
+  item.dataset.videoId = video.videoId;
+  item.tabIndex = -1;
   const frame = el('div', 'rail-frame');
   if (video.embeddable) {
     const open = el('button', 'rail-thumb');
@@ -830,6 +860,9 @@ function localVideoRow(row) {
     main.append(text('p', `Source : YouTube Data API · capturé le ${localDateShort(provenance.capturedAt)}${provenance.refreshBy ? ` · à revérifier avant le ${localDateShort(provenance.refreshBy)}` : ''}`, 'fine-print'));
   }
   main.append(link('Ouvrir sur YouTube', video.link, 'text-link'));
+  if (localView.identity?.id === MATT_MEZ_DOCUMENTARY.identityId) {
+    main.append(iconButton('Informations musicales & souvenir', 'doc', () => openDocumentaryEditor(video.videoId), 'pill small'));
+  }
   item.append(main);
   return item;
 }
@@ -855,6 +888,7 @@ function renderLocal() {
   if (!identity) return;
   body.append(
     localHero(identity),
+    ...(catalogFor(identity.id) && identity.id === MATT_MEZ_DOCUMENTARY.identityId ? [documentaryEntry(identity)] : []),
     channelsSection(identity),
     chronologySection(identity),
     text('p', 'Chronologie alimentée uniquement par des traces numériques vérifiables (provenance datée, rafraîchie au plus tard tous les 30 jours).', 'fine-print'),
@@ -1829,10 +1863,192 @@ function setTheme(theme) {
 function renderSoundButton() {
   const storyVoice = $('story-voice-toggle');
   if (!storyVoice) return;
+  if (story.documentary) {
+    const enabled = documentarySession.view?.playback.voiceEnabled ?? false;
+    const available = voice.localFrenchVoices().length > 0;
+    storyVoice.replaceChildren(iconNode(enabled ? 'speaker' : 'speakerOff'), text('span', available ? (enabled ? 'Voix française locale activée' : 'Voix française locale · option gratuite') : 'Voix locale indisponible'));
+    storyVoice.setAttribute('aria-pressed', String(enabled));
+    storyVoice.disabled = !available;
+    return;
+  }
   storyVoice.replaceChildren(iconNode(voice.enabled ? 'speaker' : 'speakerOff'), text('span', voice.supported ? (voice.enabled ? 'Voix activée' : 'Voix coupée') : 'Voix indisponible'));
   storyVoice.setAttribute('aria-pressed', String(voice.enabled));
   storyVoice.disabled = !voice.supported;
 }
+
+/* ---- Documentaire musical : même catalogue, même ordre, même mode PLAY / Raconter ---- */
+function documentaryModel() {
+  const catalog = catalogFor(MATT_MEZ_DOCUMENTARY.identityId);
+  if (!catalog) return null;
+  if (!documentarySession.store) documentarySession.store = new DocumentaryDraftStore({ catalog, seed: MATT_MEZ_DOCUMENTARY });
+  documentarySession.model = buildDocumentary(catalog, MATT_MEZ_DOCUMENTARY, documentarySession.store.read());
+  return documentarySession.model;
+}
+
+function documentaryEntry(identity) {
+  const model = documentaryModel();
+  const card = el('section', 'doc-entry');
+  card.append(text('p', 'PLAY / RACONTER · PROTOTYPE DOCUMENTAIRE', 'doc-eyebrow'), text('h3', 'Les archives ont une histoire.', 'doc-entry-title'));
+  card.append(text('p', `${model.steps.length} séquences, ${model.chapters.length} chapitres, ${model.from}–${model.to}. Un récit sourcé de ${identity.label}, à parcourir et à corriger.`, 'body-text'));
+  const launch = iconButton('Raconter une vie en musique', 'play', () => launchDocumentary(identity), 'btn primary');
+  launch.dataset.launchDocumentary = 'true';
+  card.append(launch, text('p', `Texte + maquette d’abord. Pas de lecture automatique des ${model.catalogCount} vidéos, pas de voix payante.`, 'fine-print'));
+  return card;
+}
+
+function routeHash(value) {
+  const url = new URL(window.location.href);
+  url.hash = value;
+  window.history.replaceState(null, '', url);
+}
+
+function launchDocumentary(identity = findLocalIdentity(MATT_MEZ_DOCUMENTARY.identityId)) {
+  if (documentarySession.editor && !documentarySession.editor.canClose()) return;
+  documentarySession.editor = null;
+  documentarySession.editorId = null;
+  const model = documentaryModel();
+  if (!model?.steps.length) {
+    status('Aucune séquence sélectionnée et disponible. La chronologie complète et son éditeur restent accessibles.');
+    return;
+  }
+  results.open = false;
+  localView.identity = identity;
+  startStory(model.steps, {
+    title: 'Raconter une vie en musique', documentary: model,
+    returnView: { name: 'local', id: identity.id, title: identity.label },
+  });
+  routeHash('raconter/matt-mez-sax');
+}
+
+function createDocumentaryView(model) {
+  documentarySession.view?.dispose();
+  documentarySession.view = new DocumentaryView($('documentary-body'), {
+    documentary: model, voice, controls: [$('story-controls'), $('story-foot')],
+    storageWarning: documentarySession.store.warning,
+    onJump: index => {
+      pauseStory();
+      goToStoryStep(index);
+      documentarySession.view.sequenceTitle.focus({ preventScroll: true });
+    },
+    onEdit: openDocumentaryEditor,
+    onChronology: () => {
+      stopStory({ render: false });
+      routeHash('chronologie/matt-mez-sax');
+      render();
+    },
+    onSnapshot: snapshot => {
+      story.playing = snapshot.playing;
+      setPlayIcon(snapshot.playing);
+      renderSoundButton();
+    },
+    onNext: () => {
+      if (story.index < story.steps.length - 1) goToStoryStep(story.index + 1);
+      else {
+        pauseStory();
+        status('Fin du prototype. Le récit reste navigable, et les archives complètes restent indépendantes.');
+      }
+    },
+    onExportScript: () => downloadDocumentary('script'),
+    onExportDraft: () => downloadDocumentary('draft'),
+    onImportDraft: importDocumentaryDraft,
+  });
+}
+
+function downloadDocumentary(kind) {
+  const script = kind === 'script';
+  const value = script ? exportNarration(documentarySession.model) : documentarySession.store.exportText();
+  const url = URL.createObjectURL(new Blob([value], { type: script ? 'text/markdown;charset=utf-8' : 'application/json;charset=utf-8' }));
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = script ? 'relia-matt-mez-sax-script.md' : 'relia-matt-mez-sax-brouillon-prive.json';
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function importDocumentaryDraft(file) {
+  if (file.size > MAX_DRAFT_BYTES) { status('Import refusé : limite de 1 Mo. Aucun brouillon ni catalogue modifié.'); return; }
+  if (!window.confirm('Remplacer votre brouillon local par ce fichier ? Exportez d’abord vos souvenirs si vous souhaitez les garder. Le catalogue YouTube ne changera pas.')) return;
+  const store = documentarySession.store;
+  const activeView = documentarySession.view;
+  const before = store.exportText();
+  const generation = ++documentarySession.importGeneration;
+  try {
+    const value = await file.text();
+    if (generation !== documentarySession.importGeneration) return;
+    if (store !== documentarySession.store || activeView !== documentarySession.view || documentarySession.editor || nav.stack.at(-1)?.name !== 'story' || store.exportText() !== before) {
+      status('Import abandonné : la navigation ou le brouillon a changé pendant la lecture du fichier. Réessayez depuis le documentaire.');
+      return;
+    }
+    const result = store.importText(value);
+    refreshDocumentaryStory();
+    status(result.warning || 'Brouillon importé sur cet appareil. Aucune donnée envoyée à un serveur.');
+  } catch (error) { if (generation === documentarySession.importGeneration) status(`Import refusé, brouillon inchangé : ${error.message}`); }
+}
+
+function refreshDocumentaryStory() {
+  const previousId = story.steps[story.index]?.videoId;
+  const model = documentaryModel();
+  if (!story.documentary) { render(); return; }
+  pauseStory();
+  if (!model.steps.length) {
+    stopStory({ render: false });
+    render();
+    status('Aucune séquence sélectionnée : choisissez-en dans la chronologie complète.');
+    return;
+  }
+  const matching = model.steps.findIndex(step => step.videoId === previousId);
+  story.steps = model.steps;
+  story.documentary = model;
+  story.index = matching >= 0 ? matching : Math.min(story.index, model.steps.length - 1);
+  createDocumentaryView(model);
+  goToStoryStep(story.index);
+  render();
+}
+
+function openDocumentaryEditor(videoId) {
+  documentaryModel();
+  if (!catalogFor(MATT_MEZ_DOCUMENTARY.identityId)?.videos.some(video => video.videoId === videoId)) return;
+  pauseStory();
+  activeVideoStop?.();
+  documentarySession.editor = null;
+  documentarySession.editorId = videoId;
+  pushView('documentaryEditor', 'Atelier · informations et souvenirs');
+}
+
+function renderDocumentaryEditor() {
+  if (documentarySession.editor || !documentarySession.editorId) return;
+  const videoId = documentarySession.editorId;
+  documentarySession.editor = new DocumentaryEditor($('documentary-editor-body'), {
+    catalog: catalogFor(MATT_MEZ_DOCUMENTARY.identityId), seed: MATT_MEZ_DOCUMENTARY,
+    store: documentarySession.store, videoId,
+    onCancel: popView,
+    onSaved: result => {
+      documentarySession.editor = null;
+      documentarySession.editorId = null;
+      nav.stack.pop();
+      refreshDocumentaryStory();
+      status(result.warning || 'Brouillon enregistré localement. Catalogue YouTube inchangé ; script indépendant de toute génération audio.');
+      if (!story.active) queueMicrotask(() => $('local-body').querySelector(`[data-video-id="${videoId}"]`)?.focus());
+    },
+  });
+}
+
+function handleDocumentaryRoute(event) {
+  const hash = window.location.hash;
+  const previousHash = event?.oldURL ? new URL(event.oldURL).hash : '';
+  const routes = ['#raconter/matt-mez-sax', '#chronologie/matt-mez-sax'];
+  if (!routes.includes(hash) && !routes.includes(previousHash)) return;
+  if (documentarySession.editor && !documentarySession.editor.canClose()) {
+    routeHash(previousHash || (story.documentary ? 'raconter/matt-mez-sax' : 'chronologie/matt-mez-sax'));
+    return;
+  }
+  documentarySession.editor = null;
+  documentarySession.editorId = null;
+  if (hash === '#raconter/matt-mez-sax') launchDocumentary();
+  else if (hash === '#chronologie/matt-mez-sax') openLocalIdentity(findLocalIdentity(MATT_MEZ_DOCUMENTARY.identityId));
+  else { resetNav(); render(); }
+}
+window.addEventListener('hashchange', handleDocumentaryRoute);
 
 /* ==================== RÉCIT ==================== */
 function launchEntityStory(entity) {
@@ -1892,19 +2108,30 @@ function launchPathStory(path) {
   startStory(steps, { title: 'Parcours documenté' });
 }
 
-function startStory(steps, { title = 'Récit' } = {}) {
+function startStory(steps, { title = 'Récit', documentary = null, returnView = null } = {}) {
   resetNav();
+  activeVideoStop?.(); // Coupe aussi une archive ouverte dans la chronologie indépendante.
   story.active = true;
   story.steps = steps;
   story.index = 0;
   story.title = title;
-  story.playing = true;
-  nav.stack = [{ name: 'story', title: 'Récit' }];
+  story.documentary = documentary;
+  story.playing = !documentary;
+  nav.stack = [...(returnView ? [returnView] : []), { name: 'story', title: documentary ? 'PLAY / Raconter · Matt Mez Sax' : 'Récit' }];
+  $('story-standard').hidden = Boolean(documentary);
+  $('documentary-body').hidden = !documentary;
+  $('story-skip-label').hidden = !documentary;
+  $('story-next').setAttribute('aria-label', documentary ? 'Passer la séquence' : 'Étape suivante');
+  $('story-caveat').textContent = documentary
+    ? 'Chapitres ordonnés par publication. Les événements restent des informations distinctes, confirmées seulement par leurs documents. Aucun service vocal payant.'
+    : 'Chaque étape renvoie à sa source. Les dates sont celles des relations, jamais des biographies.';
+  if (documentary) createDocumentaryView(documentary);
   $('story-kind').textContent = title;
-  if (!DESKTOP.matches && sheetSnap !== 'half') setSnap('half');
-  setPlayIcon(true);
+  if (!DESKTOP.matches) setSnap(documentary ? 'full' : 'half');
+  setPlayIcon(story.playing);
   goToStoryStep(0);
   render();
+  if (documentary && !DESKTOP.matches) queueMicrotask(() => documentarySession.view?.sequenceMeta.scrollIntoView({ block: 'start', behavior: 'auto' }));
 }
 
 function goToStoryStep(index) {
@@ -1913,6 +2140,15 @@ function goToStoryStep(index) {
   story.timer = null;
   story.index = Math.max(0, Math.min(index, story.steps.length - 1));
   const step = story.steps[story.index];
+  if (story.documentary) {
+    $('story-progress-fill').style.width = `${Math.round(((story.index + 1) / story.steps.length) * 100)}%`;
+    $('story-prev').disabled = story.index === 0;
+    $('story-next').disabled = story.index === story.steps.length - 1;
+    $('story-source').hidden = false;
+    documentarySession.view.setStep(step, { playing: story.playing });
+    renderSoundButton();
+    return;
+  }
   $('story-counter').textContent = `Étape ${story.index + 1} sur ${story.steps.length}`;
   $('story-progress-fill').style.width = `${Math.round(((story.index + 1) / story.steps.length) * 100)}%`;
   $('story-year').textContent = step.year;
@@ -1957,11 +2193,16 @@ function scheduleNextStep(delay, index) {
 
 function setPlayIcon(playing) {
   setIcon($('story-play-icon'), playing ? 'pause' : 'play');
-  $('story-play-label').textContent = playing ? 'Pause' : 'Lecture';
+  $('story-play-label').textContent = playing ? 'Pause' : story.documentary ? 'PLAY' : 'Lecture';
 }
 
 function playStory() {
   if (!story.active) return;
+  if (story.documentary) {
+    if (documentarySession.view.playback.phase === 'finished' && story.index === story.steps.length - 1) goToStoryStep(0);
+    documentarySession.view.play();
+    return;
+  }
   story.playing = true;
   setPlayIcon(true);
   sound.playTick();
@@ -1973,15 +2214,21 @@ function pauseStory() {
   story.playing = false;
   clearTimeout(story.timer);
   story.timer = null;
+  documentarySession.view?.pause();
   voice.stop();
   setPlayIcon(false);
 }
 
 function stopStory({ render: shouldRender = true } = {}) {
   const wasActive = story.active;
+  if (story.documentary && window.location.hash === '#raconter/matt-mez-sax') routeHash('chronologie/matt-mez-sax');
   pauseStory();
   story.active = false;
+  documentarySession.view?.dispose();
+  documentarySession.view = null;
+  story.documentary = null;
   story.steps = [];
+  document.body.classList.remove('documentary-open');
   const index = nav.stack.findIndex(entry => entry.name === 'story');
   if (index >= 0) nav.stack.length = index;
   if (wasActive) view.highlightStep(null);
@@ -2293,12 +2540,14 @@ $('story-prev').addEventListener('click', () => goToStoryStep(story.index - 1));
 $('story-next').addEventListener('click', () => goToStoryStep(story.index + 1));
 $('story-play').addEventListener('click', () => (story.playing ? pauseStory() : playStory()));
 $('story-source').addEventListener('click', () => {
+  if (story.documentary) { documentarySession.view.showSource(); return; }
   const edge = story.steps[story.index]?.edge;
   if (!edge) return;
   pauseStory();
   showEdge(edge);
 });
 $('story-voice-toggle').addEventListener('click', () => {
+  if (story.documentary) { documentarySession.view.toggleVoice(); renderSoundButton(); return; }
   voice.setEnabled(!voice.enabled);
   renderSoundButton();
   if (story.active && story.playing) {
@@ -2324,10 +2573,17 @@ document.addEventListener('keydown', event => {
   if (nav.stack.length) popView();
 });
 
+window.addEventListener('beforeunload', event => {
+  if (!documentarySession.editor?.dirty) return;
+  event.preventDefault();
+  event.returnValue = ''; // Message natif du navigateur : aucun souvenir dans la boîte de dialogue.
+});
+
 window.addEventListener('pagehide', event => {
   abortWork();
   cancelBiography();
   closeResults();
+  pauseStory();
   if (!event.persisted) view.dispose();
 });
 
@@ -2346,3 +2602,5 @@ renderGraph();
 render();
 renderDiscovery();
 renderSoundButton();
+
+handleDocumentaryRoute();
