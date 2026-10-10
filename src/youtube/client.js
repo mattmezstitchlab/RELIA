@@ -40,15 +40,27 @@ export function isVideoId(value) {
 }
 
 function apiError(status, body) {
-  const reason = body?.error?.errors?.[0]?.reason || body?.error?.status || '';
+  // Ne jamais réémettre le texte arbitraire du corps de réponse : il pourrait contenir une donnée
+  // sensible. Seuls des codes d’erreur YouTube connus sont conservés dans l’erreur/journal.
+  const rawReason = body?.error?.errors?.[0]?.reason || body?.error?.status || '';
+  const safeReasons = new Set([
+    'accessNotConfigured', 'dailyLimitExceeded', 'forbidden', 'ipRefererBlocked', 'keyInvalid',
+    'playlistNotFound', 'quotaExceeded', 'rateLimitExceeded', 'refererBlocked', 'userRateLimitExceeded',
+  ]);
+  const reason = safeReasons.has(rawReason) ? rawReason : '';
   const messages = {
-    quotaExceeded: 'Quota de l’API YouTube dépassé pour aujourd’hui. Réessayez demain ou augmentez le quota du projet.',
+    accessNotConfigured: 'YouTube Data API v3 non activée ou non autorisée pour ce projet Google Cloud.',
     dailyLimitExceeded: 'Quota de l’API YouTube dépassé pour aujourd’hui. Réessayez demain ou augmentez le quota du projet.',
-    keyInvalid: 'Clé API YouTube refusée. Vérifiez YOUTUBE_API_KEY et les restrictions de la clé.',
     forbidden: 'Accès refusé par l’API YouTube. Vérifiez la clé et les restrictions du projet.',
+    ipRefererBlocked: 'Clé API YouTube refusée par ses restrictions IP ou HTTP-referrer. Vérifiez les restrictions de YOUTUBE_API_KEY.',
+    keyInvalid: 'Clé API YouTube refusée. Vérifiez YOUTUBE_API_KEY et les restrictions de la clé.',
     playlistNotFound: 'Playlist introuvable : la chaîne n’a peut-être aucune vidéo publique.',
+    quotaExceeded: 'Quota de l’API YouTube dépassé pour aujourd’hui. Réessayez demain ou augmentez le quota du projet.',
+    rateLimitExceeded: 'Limite de débit de l’API YouTube atteinte. Réessayez plus tard.',
+    refererBlocked: 'Clé API YouTube refusée par ses restrictions HTTP-referrer. Vérifiez les restrictions de YOUTUBE_API_KEY.',
+    userRateLimitExceeded: 'Limite de débit de l’API YouTube atteinte. Réessayez plus tard.',
   };
-  const base = messages[reason] || `L’API YouTube a répondu HTTP ${status}${reason ? ` (${reason})` : ''}.`;
+  const base = messages[reason] || `L’API YouTube a répondu HTTP ${status}. Vérifiez la clé, les autorisations et le quota du projet.`;
   return new YouTubeApiError(base, { status, reason });
 }
 
@@ -130,6 +142,12 @@ export function createYouTubeClient({ apiKey, transport, timeoutMs = 15000 } = {
       throw new YouTubeApiError('L’API YouTube est injoignable depuis cet environnement. Exécutez la synchronisation depuis un environnement autorisé.', { status: 0, reason: 'network' });
     }
     if (!result || result.status < 200 || result.status >= 300) throw apiError(result?.status || 0, result?.body);
+    if (!result.body || typeof result.body !== 'object' || Array.isArray(result.body) || result.body.error) {
+      throw new YouTubeApiError('Réponse de l’API YouTube absente ou invalide : aucune modification du catalogue ne sera produite.', {
+        status: result.status,
+        reason: 'invalidResponse',
+      });
+    }
     return result.body;
   }
 

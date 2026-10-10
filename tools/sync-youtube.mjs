@@ -37,6 +37,7 @@ const { values: args } = parseArgs({
     'max-pages': { type: 'string', default: '40' },
     since: { type: 'string' },
     'dry-run': { type: 'boolean', default: false },
+    'require-complete': { type: 'boolean', default: false },
     check: { type: 'boolean', default: false },
     help: { type: 'boolean', default: false },
   },
@@ -56,6 +57,7 @@ Options :
   --since <AAAA-MM-JJ> Mode incrémental : vidéos publiées après cette date (aucune suppression).
   --check              Vérifie seulement que cet environnement rejoint l’API YouTube (1 unité de quota).
   --dry-run            Calcule tout mais n’écrit aucun fichier.
+  --require-complete   Refuse d’écrire si la pagination s’arrête avant la fin.
   --help               Affiche cette aide.
 
 Clé : variable d’environnement YOUTUBE_API_KEY, jamais passée en ligne de commande.`);
@@ -139,19 +141,34 @@ for (const { ref, declared } of requestedRefs) {
   console.log(`Chaîne : ${channel.title} · ${channel.channelId}`);
 
   // 6. playlistItems.list paginé, puis videos.list par lots de 50 (vérification des métadonnées).
-  const listing = await listUploads(client, {
-    playlistId: channel.uploadsPlaylistId,
-    maxPages,
-    publishedAfter: args.since ? `${args.since}T00:00:00Z` : null,
-    onPage: ({ pages, collected }) => {
-      process.stdout.write(`  page ${pages} · ${collected} vidéo(s) collectée(s)\r`);
-    },
-  });
+  let listing;
+  try {
+    listing = await listUploads(client, {
+      playlistId: channel.uploadsPlaylistId,
+      maxPages,
+      publishedAfter: args.since ? `${args.since}T00:00:00Z` : null,
+      onPage: ({ pages, collected }) => {
+        process.stdout.write(`  page ${pages} · ${collected} vidéo(s) collectée(s)\r`);
+      },
+    });
+  } catch (error) {
+    if (error instanceof YouTubeApiError) fail(`Lecture de la playlist impossible : ${error.message}`, 3);
+    throw error;
+  }
   process.stdout.write('\n');
-  if (listing.pages >= maxPages && !listing.complete) {
+  if (!listing.complete) {
+    if (args['require-complete']) {
+      fail(`Pagination incomplète après ${listing.pages} page(s) pour ${channel.channelId} : écriture annulée afin de ne pas conserver des métadonnées expirées. Augmentez --max-pages puis relancez.`, 4);
+    }
     console.log(`  ⚠ garde de quota atteinte (${maxPages} pages) : liste incomplète → aucune suppression, fichier marqué incomplet.`);
   }
-  const rawVideos = await client.videos(listing.videoIds);
+  let rawVideos;
+  try {
+    rawVideos = await client.videos(listing.videoIds);
+  } catch (error) {
+    if (error instanceof YouTubeApiError) fail(`Lecture des métadonnées vidéo impossible : ${error.message}`, 3);
+    throw error;
+  }
   const syncable = rawVideos.filter(isSyncableVideo);
   const skipped = rawVideos.length - syncable.length;
   if (skipped) console.log(`  ${skipped} vidéo(s) ignorée(s) : privée(s), supprimée(s) ou non traitée(s).`);

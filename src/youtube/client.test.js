@@ -26,6 +26,8 @@ function ok(body) { return { status: 200, body }; }
 
 test('channelRefFromURL accepts only explicit references', () => {
   assert.deepEqual(channelRefFromURL('https://www.youtube.com/channel/UCabcdefghij1234567890'), { kind: 'id', value: 'UCabcdefghij1234567890' });
+  assert.deepEqual(channelRefFromURL('https://www.youtube.com/@mezofon/videos'), { kind: 'handle', value: 'mezofon' });
+  assert.deepEqual(channelRefFromURL('https://www.youtube.com/@mattmezsax/videos'), { kind: 'handle', value: 'mattmezsax' });
   assert.deepEqual(channelRefFromURL('http://www.youtube.com/@mattmezsax'), { kind: 'handle', value: 'mattmezsax' });
   assert.deepEqual(channelRefFromURL('https://youtube.com/@Matt.Mez_Sax'), { kind: 'handle', value: 'Matt.Mez_Sax' });
   assert.deepEqual(channelRefFromURL('https://www.youtube.com/user/mattmezsax'), { kind: 'user', value: 'mattmezsax' });
@@ -72,6 +74,44 @@ test('client sends the key in a header only and never in the URL or error messag
     assert.ok(!error.message.includes(KEY), 'le message d’erreur ne doit pas contenir la clé');
     return true;
   });
+});
+
+test('invalid API keys fail clearly without echoing the key or raw API response', async () => {
+  const fake = fakeTransport([() => ({
+    status: 403,
+    body: { error: { errors: [{ reason: 'keyInvalid', message: KEY }], message: KEY } },
+  })]);
+  const client = createYouTubeClient({ apiKey: KEY, transport: fake.transport });
+  await assert.rejects(() => client.channel({ kind: 'id', value: 'UCabcdefghij1234567890' }), error => {
+    assert.ok(error instanceof YouTubeApiError);
+    assert.equal(error.reason, 'keyInvalid');
+    assert.match(error.message, /Clé API YouTube refusée/);
+    assert.ok(!error.message.includes(KEY));
+    return true;
+  });
+
+  const hostile = fakeTransport([() => ({
+    status: 403,
+    body: { error: { errors: [{ reason: KEY }], message: KEY } },
+  })]);
+  const hostileClient = createYouTubeClient({ apiKey: KEY, transport: hostile.transport });
+  await assert.rejects(() => hostileClient.channel({ kind: 'id', value: 'UCabcdefghij1234567890' }), error => {
+    assert.ok(!error.message.includes(KEY));
+    assert.ok(!error.reason.includes(KEY));
+    return true;
+  });
+});
+
+test('network failures and malformed success responses fail closed', async () => {
+  const offline = createYouTubeClient({ apiKey: KEY, transport: async () => { throw new Error(KEY); } });
+  await assert.rejects(() => offline.channel({ kind: 'id', value: 'UCabcdefghij1234567890' }), error => {
+    assert.match(error.message, /API YouTube est injoignable/);
+    assert.ok(!error.message.includes(KEY));
+    return true;
+  });
+
+  const malformed = createYouTubeClient({ apiKey: KEY, transport: async () => ok(null) });
+  await assert.rejects(() => malformed.playlistPage({ playlistId: 'UUabcdefghij1234567890' }), /Réponse de l’API YouTube absente ou invalide/);
 });
 
 test('listUploads paginates the uploads playlist and reports completeness', async () => {

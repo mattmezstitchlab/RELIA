@@ -1,74 +1,94 @@
 # Synchronisation YouTube → catalogue RELIA
 
-Procédure d’exécution **réelle**. Le sandbox de développement ne peut pas joindre `googleapis.com` :
-la synchronisation se fait depuis un environnement autorisé (poste local, ou CI privée avec secret).
+Le modèle de workflow GitHub Actions **Synchroniser le catalogue YouTube** est prêt pour alimenter
+la fiche locale `relia:person:matt-mez-sax` depuis les deux chaînes officielles déclarées par le
+propriétaire :
 
-## Principes
+- `https://www.youtube.com/@mezofon/videos`
+- `https://www.youtube.com/@mattmezsax/videos`
 
-- **La clé ne circule jamais côté navigateur.** Elle vit uniquement dans `YOUTUBE_API_KEY`,
-  variable d’environnement privée du processus de synchronisation (secret CI, variable shell).
-  Elle n’est jamais écrite dans le dépôt, dans les journaux, ni dans le fichier catalogue produit.
-- **Rattachement explicite uniquement.** La chaîne est déclarée par le propriétaire (URL officielle
-  ou identifiant `UC…`). Aucune correspondance par nom, aucune URL personnalisée « /c/ » devinée.
-- **Aucune vidéo téléchargée ni réhébergée.** Le catalogue ne stocke que des métadonnées publiques :
-  identifiant, titre, date de publication, chaîne, durée, miniature (URL YouTube), lien, droit d’intégration.
-- **Conservation des métadonnées.** Chaque entrée porte une provenance `youtube_api` avec une échéance
-  de rafraîchissement à +30 jours. Une vidéo devenue privée ou supprimée est **retirée** du catalogue
-  à la synchronisation complète suivante. Une pagination incomplète ne supprime jamais rien.
+**État de livraison :** le workflow n’est pas encore installé dans `.github/workflows/`, car la
+connexion GitHub utilisée pour cette livraison ne possède pas la permission `workflows`. Le modèle
+complet et prêt à installer est versionné séparément dans
+[`docs/workflows/sync-youtube.yml`](workflows/sync-youtube.yml). Une fois les permissions accordées,
+ce fichier devra être copié sans modification vers `.github/workflows/sync-youtube.yml`.
 
-## Appels API utilisés (YouTube Data API v3)
+Ni la PR de code ni la PR qui ajoutera le workflow ne lancent une synchronisation réelle : le
+workflow ne comporte aucun déclencheur `push` ou `pull_request`. Le premier appel à YouTube se fera
+manuellement depuis GitHub, après installation du fichier et fusion sur `main`.
 
-| Appel | Rôle | Coût approximatif |
-|---|---|---|
-| `channels.list` | résoudre la chaîne déclarée, obtenir la playlist « uploads » | 1 unité |
-| `playlistItems.list` | pages de la playlist (50 vidéos/page) | 1 unité / page |
-| `videos.list` | métadonnées vérifiées (lots de 50) | 1 unité / lot |
+## Architecture vérifiée
 
-Une chaîne de 100 vidéos coûte donc environ **5 unités** (quota par défaut : 10 000/jour).
+- `tools/sync-youtube.mjs` résout chaque handle avec `channels.list`, puis lit les playlists `uploads`
+  et les détails des vidéos via YouTube Data API v3.
+- Les deux exécutions écrivent dans le **même fichier** :
+  `src/data/youtube/matt-mez-sax.json` (`--identity relia:person:matt-mez-sax`).
+- Ce fichier n’est pas ignoré par Git. `src/catalog.js` importe `src/data/youtube/*.json` avec Vite;
+  `vercel.json` lance `npm run build` et publie `dist`. Le build statique incorpore donc les
+  métadonnées publiques dans le site sans appel à l’API depuis le navigateur.
+- Le workflow proposé n’utilise ni jeton Vercel ni commande de déploiement. Il construit le site pour
+  vérifier le catalogue, puis propose une **PR de données**. La fusion manuelle dans `main` est
+  l’étape d’approbation; si le projet Vercel est relié à GitHub, sa configuration habituelle peut
+  alors construire/déployer `main`.
 
-## Procédure (poste local)
+## Rafraîchissement et retrait des vidéos
 
-```bash
-cd RELIA
+- La politique locale fixe `REFRESH_AFTER_DAYS` à **30 jours**. Le modèle de workflow est planifié
+  chaque lundi à **05:17 UTC**, soit une marge importante sous cette limite.
+- Chaque lancement effectue une synchronisation complète des deux chaînes; il n’utilise pas le mode
+  incrémental `--since`. Les dates de provenance de toutes les métadonnées encore publiques sont
+  ainsi renouvelées.
+- Une vidéo devenue privée, supprimée ou indisponible est retirée après une pagination complète.
+  Une liste tronquée ne provoque jamais de suppression.
+- Le modèle utilise `--max-pages 200` (jusqu’à 10 000 entrées par chaîne) et `--require-complete`.
+  Si la liste dépasse cette garde, l’Action échoue avant de proposer une mise à jour, plutôt que de
+  laisser des entrées non rafraîchies dans un nouveau catalogue. Augmenter la garde demandera de
+  modifier le workflow, en tenant compte du quota du projet Google.
+- La planification génère/actualise une PR, **sans fusion automatique**. Il faut fusionner chaque PR
+  de rafraîchissement avant que l’ancienne copie déployée n’atteigne son échéance de 30 jours. Une
+  PR non fusionnée ne renouvelle pas le site en production.
 
-# 1. Vérifier que l’environnement rejoint l’API (1 unité de quota) :
-export YOUTUBE_API_KEY="…votre clé…"        # variable d’environnement du shell uniquement
-node tools/sync-youtube.mjs --check --channel "https://www.youtube.com/@VotreHandle"
+## Sécurité et échecs
 
-# 2. Synchronisation complète (premier rattachement — l’URL est déclarée ici, par le propriétaire) :
-node tools/sync-youtube.mjs --channel "https://www.youtube.com/@VotreHandle" \
-  --identity relia:person:matt-mez-sax
+- Lors de son exécution, le secret de dépôt `YOUTUBE_API_KEY` est transmis uniquement comme
+  variable d’environnement aux étapes de synchronisation. Le client l’envoie dans l’en-tête
+  `X-Goog-Api-Key` (jamais dans l’URL). Il n’est ni imprimé, ni commité, ni envoyé à Vercel. Les
+  erreurs API n’incluent pas le texte brut reçu du serveur. Restreindre la clé à YouTube Data API v3
+  dans Google Cloud.
+- Le modèle n’écoute que `workflow_dispatch` et `schedule`, vérifie le dépôt/la branche `main`, et
+  ne s’exécute jamais sur `pull_request` ou `pull_request_target`. Le code testé vient de `main`.
+- La clé absente, une clé refusée ou restreinte, l’API inaccessible, un quota dépassé, une chaîne
+  introuvable ou une pagination incomplète font échouer clairement l’exécution; aucune PR n’est
+  créée à partir d’une synchronisation partielle.
+- `concurrency` sérialise les exécutions. La branche fixe `automation/youtube-catalog` est
+  régénérée depuis `main`, puis poussée avec `--force-with-lease`; le workflow ne pousse jamais sur
+  `main` et ne s’écoute pas lui-même après un push. Un humain doit relire et fusionner la PR.
+- Seules les métadonnées publiques nécessaires sont conservées (identifiants, titre, date de
+  publication, chaîne, durée, miniature, lien et droit d’intégration). Aucune vidéo n’est téléchargée
+  ou réhébergée. La validation du catalogue refuse les champs non prévus, notamment une clé.
 
-# 3. Contrôler le résultat puis committer le catalogue :
-git diff src/data/youtube/
-git add src/data/youtube/ && git commit -m "Catalogue YouTube de Matt Mez Sax (synchronisation réelle)"
-```
+## Première synchronisation depuis GitHub — sans terminal local
 
-Sans `--channel`, l’outil resynchronise **toutes** les chaînes déjà rattachées à l’identité
-(plusieurs chaînes officielles par personne sont prises en charge : relancez l’outil par chaîne
-au premier rattachement, puis un simple appel entretient tout le monde).
+1. Relire et fusionner manuellement la PR de préparation vers `main`. Elle contient le synchroniseur,
+   les tests et le modèle, mais **n’installe pas encore** le workflow actif.
+2. Après reconnexion GitHub dans Arena avec la permission `workflows` en écriture, installer le modèle
+   sous `.github/workflows/sync-youtube.yml` (ou demander à l’agent de créer cette PR dédiée), puis
+   fusionner manuellement cette PR d’installation. Aucun déclencheur ne synchronise les données à
+   cette étape.
+3. Dans **Settings → Secrets and variables → Actions**, vérifier que le secret de dépôt
+   `YOUTUBE_API_KEY` existe. La valeur n’a pas besoin d’être affichée ni copiée dans les journaux.
+4. Dans **Settings → Actions → General**, vérifier que le dépôt permet les permissions d’écriture
+   de `GITHUB_TOKEN` et que **Allow GitHub Actions to create and approve pull requests** est activé
+   pour permettre à l’Action d’ouvrir sa PR. Le workflow ne l’utilise pas pour approuver ou fusionner;
+   le job déclare seulement `contents: write` et `pull-requests: write`.
+5. Ouvrir **Actions → Synchroniser le catalogue YouTube → Run workflow**, choisir la branche **main**
+   et confirmer **Run workflow**. C’est le premier appel réel à YouTube.
+6. Si l’exécution réussit, ouvrir la PR **Actualiser le catalogue YouTube de Matt Mez Sax**. Vérifier
+   que le catalogue unique contient les deux chaînes et relire le diff, puis fusionner cette PR
+   manuellement pour rendre les données disponibles au build du site.
+7. Ensuite, les exécutions hebdomadaires ouvrent/actualisent la même PR de données. La fusion reste
+   manuelle et doit intervenir avant l’échéance de conservation affichée dans la fiche RELIA.
 
-## Options utiles
-
-| Option | Effet |
-|---|---|
-| `--dry-run` | calcule tout, n’écrit rien |
-| `--since AAAA-MM-JJ` | incrémental : n’ajoute/met à jour que ce qui est publié après la date (aucune suppression, `complete` inchangé) |
-| `--max-pages N` | garde de quota (défaut 40 pages ≈ 2 000 vidéos par chaîne) |
-| `--out chemin` | autre fichier catalogue (doit rester dans `src/data/youtube/`) |
-
-## Rafraîchissement et suppression
-
-- Relancez la synchronisation **au moins tous les 30 jours** (l’outil affiche la date limite).
-  Au-delà, l’interface marque les entrées « métadonnées à revérifier » et les données doivent être
-  revérifiées ou retirées.
-- Une vidéo passée en privée ou supprimée disparaît du catalogue à la synchronisation complète
-  suivante (liste paginée **complète** uniquement — condition codée et testée).
-- En CI privée, planifiez par exemple un cron mensuel avec `YOUTUBE_API_KEY` en secret.
-
-## Sécurité
-
-- La clé part dans l’en-tête `X-Goog-Api-Key`, jamais dans l’URL : rien n’apparaît dans les journaux.
-- Le fichier catalogue est validé par un schéma à clés fermées (`validateCatalog`) : tout champ
-  inattendu — dont une éventuelle clé — rend le fichier refusé par l’application.
-- Restreignez la clé dans Google Cloud (API YouTube Data v3 seule) et, si possible, par IP.
+Les échecs sont visibles dans l’onglet **Actions** et leurs journaux expliquent si le problème est
+la clé, l’accès réseau/API, le quota, la référence d’une chaîne ou la limite de pagination. Aucun
+échec ne déclenche un déploiement Vercel.
