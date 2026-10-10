@@ -11,6 +11,11 @@ import { SoundEngine, VoiceNarrator } from './narration.js';
 import { canAddSecond, relationReady, resolveMode } from './mode.js';
 import { clampHeight, nextSnap, settleSnap, snapTargets } from './sheet.js';
 import { voiceLabel } from './voice.js';
+import { isLocalId } from './identity.js';
+import { matchLocalIdentities, verificationLabel } from './local-search.js';
+import { catalogFor, chronologyRows } from './catalog.js';
+import { isStale } from './provenance.js';
+import { datesOf } from './dates.js';
 
 const $ = id => document.getElementById(id);
 const DESKTOP = window.matchMedia('(min-width: 900px)');
@@ -28,7 +33,7 @@ const discoveryLabels = {
   INCOMPARABLE: 'Incomparable',
 };
 const VIEW_IDS = {
-  home: 'view-home', results: 'view-results', identity: 'view-identity', relation: 'view-relation', story: 'view-story',
+  home: 'view-home', results: 'view-results', identity: 'view-identity', local: 'view-local', relation: 'view-relation', story: 'view-story',
   source: 'view-source', media: 'view-media', time: 'view-time', list: 'view-list', settings: 'view-settings',
   help: 'view-help', advanced: 'view-advanced',
 };
@@ -345,8 +350,13 @@ async function runSearch(slot, { more = false } = {}) {
     const page = await searchEntitiesPage(term, { signal, limit: 20, continue: more ? results.next : undefined, language: more ? results.language : undefined });
     if (signal.aborted || searchWork?.signal !== signal) return;
     const enriched = await enrichResults(page.items, signal);
-    const fresh = (target === 'b' ? enriched.filter(entity => entity.type === 'person') : enriched)
-      .filter(entity => !more || !results.items.some(item => item.id === entity.id));
+    // Les fiches locales RELIA sont proposées en tête, sur correspondance stricte du nom (slot A seulement :
+    // les relations documentées restent fondées sur des identités Wikidata).
+    const localHits = target === 'a' && !more ? matchLocalIdentities(term) : [];
+    const remote = target === 'b' ? enriched.filter(entity => entity.type === 'person') : enriched;
+    const fresh = [...localHits, ...remote]
+      .filter(entity => !more || !results.items.some(item => item.id === entity.id))
+      .filter((entity, index, list) => list.findIndex(other => other.id === entity.id) === index);
     Object.assign(results, {
       phase: 'done', items: more ? [...results.items, ...fresh] : fresh, next: page.next, language: page.language, loadingMore: false, message: '',
     });
@@ -367,7 +377,7 @@ function resultRow(entity, slot) {
   const main = el('span', 'row-main');
   main.append(text('span', entity.label, 'row-title'));
   const kind = el('span', `row-kind type-${entity.type || 'unknown'}`);
-  kind.append(iconNode(typeIconName(entity.type)), text('span', typeLabels[entity.type] || typeLabels.unknown));
+  kind.append(iconNode(typeIconName(entity.type)), text('span', entity.local ? 'Fiche locale RELIA' : (typeLabels[entity.type] || typeLabels.unknown)));
   main.append(kind);
   if (entity.description) main.append(text('span', entity.description, 'row-sub'));
   row.append(main, iconNode('chevron', 'ico row-go'));
@@ -452,6 +462,11 @@ async function pickResult(slot, entity) {
 }
 
 async function chooseFirst(entity) {
+  // Une identité locale s’ouvre sans aucune expansion Wikidata : elle n’est jamais liée automatiquement.
+  if (isLocalId(entity.id)) {
+    openLocalIdentity(entity);
+    return;
+  }
   await selectRealIdentity(entity.id, entity);
 }
 
@@ -681,6 +696,7 @@ function render() {
     case 'home': renderHome(); break;
     case 'results': renderResults(); break;
     case 'identity': renderIdentity(); break;
+    case 'local': renderLocal(); break;
     case 'relation': renderRelation(); break;
     case 'source': renderSource(); break;
     case 'media': renderMedia(); break;
@@ -700,11 +716,149 @@ function render() {
   ui.wasSub = sub;
 }
 
-const EXAMPLE_NAMES = ['Marie Curie', 'Victor Hugo', 'Ada Lovelace', 'Claude Monet'];
+const EXAMPLE_NAMES = ['Matt Mez Sax', 'Marie Curie', 'Victor Hugo', 'Ada Lovelace', 'Claude Monet'];
 function renderHome() {
   const examples = $('examples');
   examples.replaceChildren();
   for (const name of EXAMPLE_NAMES) examples.append(button(name, () => searchFromExample(name), 'example-chip'));
+}
+
+/* ---- Fiche locale RELIA : identité déclarée, chaînes officielles, chronologie vidéo ---- */
+const localView = { identity: null };
+
+function openLocalIdentity(identity) {
+  stopStory({ render: false });
+  ui.detailController?.abort();
+  ui.detailController = null;
+  ui.loadingId = null;
+  localView.identity = identity;
+  nav.stack = [{ name: 'local', id: identity.id, title: identity.label }];
+  ensureSheetOpen();
+  render();
+}
+
+function localDateShort(iso) {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('fr-FR', { dateStyle: 'long' });
+}
+
+function localHero(identity) {
+  const card = el('section', 'identity-card');
+  card.style.setProperty('--t', 'var(--t-person)');
+  const body = el('div', 'identity-text');
+  body.append(text('p', 'Fiche locale RELIA', 'kicker'));
+  body.append(text('h2', identity.label, 'identity-name'));
+  const chips = el('div', 'chip-row');
+  chips.append(chipInfo('shield', verificationLabel(identity)));
+  body.append(chips);
+  if (identity.description) body.append(text('p', identity.description, 'identity-desc'));
+  card.append(avatarNode(identity, 'xl'), body);
+  return card;
+}
+
+function channelsSection(identity) {
+  const wrap = el('section', 'local-section');
+  const channels = catalogFor(identity.id)?.channels ?? [];
+  wrap.append(sectionHead('Chaînes YouTube officielles', channels.length ? String(channels.length) : ''));
+  if (!channels.length) {
+    wrap.append(text('p', 'Aucune chaîne rattachée pour l’instant. Le rattachement est explicite : déclaré par le propriétaire, puis résolu et vérifié par l’API — jamais par simple correspondance de nom.', 'muted-text'));
+    return wrap;
+  }
+  const list = el('ul', 'local-channels');
+  for (const channel of channels) {
+    const item = el('li', 'channel-card');
+    const main = el('div', 'channel-main');
+    main.append(text('h4', channel.title, 'channel-title'));
+    main.append(text('p', `Rattachement déclaré par le propriétaire${channel.declaredAt ? ` · enregistré le ${localDateShort(channel.declaredAt)}` : ''}`, 'fine-print'));
+    item.append(main, link('Ouvrir la chaîne', channel.url, 'text-link'));
+    list.append(item);
+  }
+  wrap.append(list);
+  return wrap;
+}
+
+function localVideoRow(row) {
+  const { entry, video } = row;
+  const item = el('li', 'local-video');
+  const frame = el('div', 'rail-frame');
+  if (video.embeddable) {
+    const open = el('button', 'rail-thumb');
+    open.type = 'button';
+    open.setAttribute('aria-label', `Lire la vidéo : ${video.title}`);
+    if (video.thumbnail) {
+      const img = el('img', 'rail-poster');
+      img.src = video.thumbnail;
+      img.alt = '';
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      img.referrerPolicy = 'no-referrer';
+      open.append(img);
+    }
+    open.append(iconNode('play', 'ico rail-play'));
+    open.addEventListener('click', () => playVideo(frame, {
+      kind: 'youtube',
+      title: video.title,
+      poster: video.thumbnail,
+      // Intégration autorisée uniquement : lecteur youtube-nocookie, aucun téléchargement ni réhébergement.
+      embed: `https://www.youtube-nocookie.com/embed/${video.videoId}?rel=0`,
+    }));
+    frame.append(open);
+  } else if (video.thumbnail) {
+    const poster = el('img', 'rail-poster');
+    poster.src = video.thumbnail;
+    poster.alt = '';
+    poster.loading = 'lazy';
+    poster.decoding = 'async';
+    poster.referrerPolicy = 'no-referrer';
+    frame.append(poster, chipInfo('info', 'Lecture sur YouTube uniquement'));
+    frame.classList.add('no-embed');
+  }
+  item.append(frame);
+
+  const main = el('div', 'local-video-main');
+  main.append(text('h4', video.title, 'local-video-title'));
+  const publication = datesOf(entry).find(line => line.role === 'publication');
+  const chips = el('div', 'chip-row');
+  if (publication) chips.append(chipInfo('calendar', `${publication.label} ${publication.display}`));
+  if (video.durationDisplay) chips.append(chipInfo('clock', video.durationDisplay));
+  if (video.channelTitle) chips.append(chipInfo('video', video.channelTitle));
+  if (!video.embeddable) chips.append(chipInfo('info', 'Lecture sur YouTube uniquement'));
+  if (isStale(video.provenance[0])) chips.append(chipInfo('alert', 'Métadonnées à revérifier'));
+  main.append(chips);
+  const provenance = video.provenance[0];
+  if (provenance) {
+    main.append(text('p', `Source : YouTube Data API · capturé le ${localDateShort(provenance.capturedAt)}${provenance.refreshBy ? ` · à revérifier avant le ${localDateShort(provenance.refreshBy)}` : ''}`, 'fine-print'));
+  }
+  main.append(link('Ouvrir sur YouTube', video.link, 'text-link'));
+  item.append(main);
+  return item;
+}
+
+function chronologySection(identity) {
+  const wrap = el('section', 'local-section');
+  const rows = chronologyRows(catalogFor(identity.id));
+  wrap.append(sectionHead('Chronologie des vidéos', rows.length ? String(rows.length) : ''));
+  wrap.append(text('p', rows.length
+    ? 'De la plus ancienne publication accessible à la plus récente. La date affichée est celle de la publication de la vidéo, jamais la date de l’événement filmé.'
+    : 'Aucune vidéo synchronisée pour l’instant. La synchronisation s’exécute hors navigateur, avec YOUTUBE_API_KEY dans un environnement autorisé (voir docs/SYNC_YOUTUBE.md) — jamais depuis cette page.', 'muted-text'));
+  if (!rows.length) return wrap;
+  const list = el('ol', 'local-videos');
+  for (const row of rows) list.append(localVideoRow(row));
+  wrap.append(list);
+  return wrap;
+}
+
+function renderLocal() {
+  const body = $('local-body');
+  body.replaceChildren();
+  const identity = localView.identity;
+  if (!identity) return;
+  body.append(
+    localHero(identity),
+    channelsSection(identity),
+    chronologySection(identity),
+    text('p', 'Chronologie alimentée uniquement par des traces numériques vérifiables (provenance datée, rafraîchie au plus tard tous les 30 jours).', 'fine-print'),
+  );
 }
 
 /* ---- Identité : une personne explorée ---- */
