@@ -19,7 +19,7 @@ function writeStorage(storage, key, value) {
 
 /* ==================== EFFETS SONORES (WebAudio) ==================== */
 export class SoundEngine {
-  constructor(storage = globalThis.localStorage) {
+  constructor(storage = defaultStorage()) {
     this.storage = storage;
     this.ctx = null;
     this.enabled = readStorage(storage, 'relia-sound', 'true') !== 'false';
@@ -121,7 +121,11 @@ export class VoiceNarrator {
   }
   voices() { return hasSpeech() ? speechSynthesis.getVoices() : []; }
   ranked() { return rankFrenchVoices(this.voices()); }
-  selectedVoice() { return pickNarratorVoice(this.voices(), this.voiceKey); }
+  localFrenchVoices() { return this.ranked().filter(entry => entry.voice.localService === true); }
+  selectedVoice({ localOnly = false } = {}) {
+    const voices = localOnly ? this.voices().filter(candidate => candidate.localService === true) : this.voices();
+    return pickNarratorVoice(voices, this.voiceKey);
+  }
   selectedKey() {
     const voice = this.selectedVoice();
     return voice ? voiceKey(voice) : '';
@@ -144,21 +148,31 @@ export class VoiceNarrator {
   toggle() { return this.setEnabled(!this.enabled); }
   // Lit le texte par morceaux successifs. onEnd n’est appelé qu’à la fin du dernier morceau,
   // ou immédiatement si la narration est coupée ou indisponible.
-  speak(value, { onEnd = () => {} } = {}) {
+  speak(value, { onEnd = () => {}, onError = null, localOnly = false } = {}) {
     const chunks = speechChunks(value);
     if (!this.enabled || !hasSpeech() || !chunks.length) {
-      onEnd();
+      // Le documentaire utilise un minutage de lecture textuelle si aucune voix locale
+      // n’est disponible : ne pas lui annoncer une fin de narration immédiate.
+      if (!localOnly) onEnd();
       return false;
     }
+    const voice = this.selectedVoice({ localOnly });
+    if (localOnly && !voice) return false; // Jamais de voix distante ou de langue par défaut.
     this.stop();
     const generation = this.generation;
-    const voice = this.selectedVoice();
     let index = 0;
     const finish = () => {
       if (generation !== this.generation) return;
       this.speaking = false;
       document.body?.classList.remove('narrator-speaking');
       onEnd();
+    };
+    const fail = error => {
+      if (generation !== this.generation) return;
+      this.speaking = false;
+      document.body?.classList.remove('narrator-speaking');
+      if (localOnly && onError) onError(error);
+      else finish();
     };
     const next = () => {
       if (generation !== this.generation) return;
@@ -175,12 +189,16 @@ export class VoiceNarrator {
         document.body?.classList.add('narrator-speaking');
       };
       utterance.onend = next;
-      utterance.onerror = () => { if (generation === this.generation) next(); };
+      utterance.onerror = event => {
+        if (generation !== this.generation) return;
+        if (localOnly && onError) fail(event?.error);
+        else next();
+      };
       this.speaking = true;
       try {
         speechSynthesis.speak(utterance);
-      } catch {
-        finish();
+      } catch (error) {
+        fail(error);
       }
     };
     next();
