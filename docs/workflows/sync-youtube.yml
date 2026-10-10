@@ -1,0 +1,141 @@
+name: Synchroniser le catalogue YouTube
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Chaque semaine, avec une marge importante sur l’échéance de conservation de 30 jours.
+    - cron: '17 5 * * 1'
+
+# Par défaut, aucune permission d’écriture. Le job d’automatisation demande seulement celles
+# nécessaires pour publier une branche et ouvrir/actualiser une PR.
+permissions:
+  contents: read
+
+# Un seul synchroniseur peut écrire dans la branche catalogue à la fois.
+concurrency:
+  group: youtube-catalog-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  synchronize:
+    name: Synchroniser puis proposer une PR
+    if: github.repository == 'mattmezstitchlab/RELIA' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      # Aucun déclencheur pull_request : seule la version approuvée sur main est exécutée avec le secret.
+      - name: Récupérer main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Installer Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.12.0'
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Vérifier les tests
+        run: npm test
+
+      - name: Préparer la branche de proposition depuis main
+        run: git switch --force-create automation/youtube-catalog origin/main
+
+      - name: Vérifier la présence du secret (sans l’afficher)
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: |
+          if [ -z "$YOUTUBE_API_KEY" ]; then
+            echo '::error::Le secret GitHub Actions YOUTUBE_API_KEY est absent ou vide.'
+            exit 1
+          fi
+
+      - name: Résoudre et synchroniser @mezofon
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: >-
+          node tools/sync-youtube.mjs
+          --channel 'https://www.youtube.com/@mezofon/videos'
+          --identity relia:person:matt-mez-sax
+          --max-pages 200
+          --require-complete
+
+      - name: Résoudre et synchroniser @mattmezsax dans le même catalogue
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: >-
+          node tools/sync-youtube.mjs
+          --channel 'https://www.youtube.com/@mattmezsax/videos'
+          --identity relia:person:matt-mez-sax
+          --max-pages 200
+          --require-complete
+
+      # Valide le catalogue et confirme qu’il est bien incorporé au build Vite utilisé par Vercel.
+      - name: Construire le site statique (sans déployer)
+        run: npm run build
+
+      - name: Ouvrir ou actualiser la PR du catalogue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: automation/youtube-catalog
+        run: |
+          set -euo pipefail
+
+          catalog='src/data/youtube/matt-mez-sax.json'
+          if [ -z "$(git status --porcelain -- "$catalog")" ]; then
+            echo 'Le catalogue n’a pas changé : aucune PR à actualiser.'
+            exit 0
+          fi
+
+          git add -- "$catalog"
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore: refresh YouTube catalog'
+          gh auth setup-git --hostname github.com
+
+          # La branche est régénérée depuis main à chaque exécution. Le lease évite d’écraser
+          # une mise à jour inattendue faite en parallèle par une autre identité.
+          if remote_sha="$(git ls-remote --exit-code --heads origin "refs/heads/$BRANCH" | cut -f1)" && [ -n "$remote_sha" ]; then
+            git push --force-with-lease="refs/heads/$BRANCH:$remote_sha" origin "HEAD:refs/heads/$BRANCH"
+          else
+            git push origin "HEAD:refs/heads/$BRANCH"
+          fi
+
+          pr_number="$(gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --head "$GITHUB_REPOSITORY_OWNER:$BRANCH" \
+            --base main \
+            --json number \
+            --jq '.[0].number // empty')"
+
+          body_file="$(mktemp)"
+          cat > "$body_file" <<'EOF'
+          Catalogue de métadonnées publiques généré par `tools/sync-youtube.mjs` pour les chaînes officielles `@mezofon` et `@mattmezsax`.
+
+          - Les vidéos non publiques, supprimées ou indisponibles sont retirées après une pagination complète.
+          - Les deux chaînes partagent `src/data/youtube/matt-mez-sax.json`.
+          - `YOUTUBE_API_KEY` n’est ni ajoutée au catalogue ni transmise à Vercel.
+          - Cette PR n’est pas fusionnée automatiquement. La fusion dans `main` est l’étape d’approbation qui rend le catalogue disponible au build Vercel existant.
+          EOF
+
+          if [ -n "$pr_number" ]; then
+            gh pr edit "$pr_number" \
+              --title 'Actualiser le catalogue YouTube de Matt Mez Sax' \
+              --body-file "$body_file"
+          else
+            gh pr create \
+              --repo "$GITHUB_REPOSITORY" \
+              --base main \
+              --head "$BRANCH" \
+              --title 'Actualiser le catalogue YouTube de Matt Mez Sax' \
+              --body-file "$body_file"
+          fi

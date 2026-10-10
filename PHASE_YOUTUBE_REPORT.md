@@ -21,7 +21,7 @@ Branche : `arena/c223e772-relia` → PR vers `main`. **PR non fusionnée** (déc
 | `src/youtube/client.js` | Client YouTube Data API v3 : `channels.list` (résolution explicite), `playlistItems.list` paginé, `videos.list` par lots de 50. Transport injectable (tests sans réseau). Clé uniquement dans l’en-tête `X-Goog-Api-Key` — jamais dans une URL, un message d’erreur ou une donnée produite. |
 | `src/youtube/catalog.js` | Métadonnées publiques normalisées (identifiant, titre, publication, chaîne, durée, miniature https, lien, `embeddable`). Provenance `youtube_api` datée avec échéance de rafraîchissement **+30 j** (`isStale`). Fusion incrémentale par identifiant YouTube ; suppression conforme des vidéos devenues privées/supprimées — **seulement si la pagination est complète** ; mode incrémental `--since` sans suppression. Conversion en entrées `content` du **moteur chronologique existant** (`chronologicalOrder`, axe `publication`). Validation du fichier à **clés fermées** : tout champ inattendu (dont une clé) est refusé. |
 | `tools/sync-youtube.mjs` | Synchronisation réelle : clé via `YOUTUBE_API_KEY` (environnement du processus uniquement). Chaîne rattachée sur **déclaration explicite du propriétaire** (`/channel/UC…`, `/@handle`, `/user/…`, `UC…`) — jamais par nom, jamais via `/c/`. Garde de quota `--max-pages`, `--check` (portée réseau), `--dry-run`. Plusieurs chaînes officielles par personne prises en charge. |
-| `docs/SYNC_YOUTUBE.md` | Procédure d’exécution réelle depuis un environnement autorisé. |
+| `docs/SYNC_YOUTUBE.md` | Procédure d’activation, d’exécution et de renouvellement via GitHub Actions (mise à jour dans la PR d’activation). |
 
 ### 2. Interface — fiche locale + chronologie (commit `3498292`)
 
@@ -46,12 +46,18 @@ Branche : `arena/c223e772-relia` → PR vers `main`. **PR non fusionnée** (déc
   procédure réelle est documentée. `tools/sync-youtube.mjs --check` permet de valider un environnement
   autorisé en 1 unité de quota.
 
-## Restant (une fois l’URL de la chaîne et la clé fournies)
+## Suite opérationnelle (mise à jour du 10 octobre 2026)
 
-1. `export YOUTUBE_API_KEY=…` dans un environnement autorisé (poste local ou CI privée).
-2. `node tools/sync-youtube.mjs --check --channel <URL de la chaîne officielle>` (1 unité).
-3. `node tools/sync-youtube.mjs --channel <URL> --identity relia:person:matt-mez-sax`.
-4. Vérifier `git diff src/data/youtube/`, committer le catalogue, pousser : la fiche RELIA affiche
-   alors chaîne, vidéos, dates et lecteurs — sans jamais exposer la clé.
-5. Ensuite (évolutions déjà préparées) : narration chronologique des vidéos via le mode PLAY existant ;
-   éventuellement `--since` mensuel planifié en CI pour le rafraîchissement 30 jours.
+Le modèle complet du workflow GitHub Actions est préparé dans la PR dédiée à cette demande, mais
+n’est pas installé dans `.github/workflows/` faute de permission GitHub `workflows` en écriture.
+La synchronisation réelle n’a pas été déclenchée et aucun catalogue réel n’a été généré. Après revue
+et fusion manuelle de la PR de préparation, puis installation du modèle avec les permissions
+appropriées :
+
+1. Depuis **Actions → Synchroniser le catalogue YouTube → Run workflow**, exécuter sur `main` la
+   première synchronisation des chaînes `@mezofon` et `@mattmezsax`.
+2. Relire puis fusionner manuellement la PR de données créée par l’Action pour distribuer le catalogue
+   au build Vercel configuré; aucune publication n’est faite automatiquement par le workflow.
+3. Fusionner les PR hebdomadaires de renouvellement avant l’échéance de conservation de 30 jours.
+
+Les étapes détaillées et les limites de sécurité/quota sont dans [docs/SYNC_YOUTUBE.md](docs/SYNC_YOUTUBE.md).

@@ -1,3 +1,6 @@
 node_modules/
 dist/
 .browser-test/
+
+# Intentionally versioned public YouTube metadata: Vite imports src/data/youtube/*.json
+# into the static site bundle consumed by Vercel. Do not ignore this catalogue.
